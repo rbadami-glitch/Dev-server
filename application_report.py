@@ -38,16 +38,11 @@ def render_applications(report, summary, has_logs):
                      report.money(b["spend_usd"]),
                      f"{compact(b['input_tokens'])} / {compact(b['output_tokens'])}",
                      f"{lat:.1f}s" if lat is not None else "-"])
-    if has_logs:
-        note = ("Application traffic is identified by the saved LiteLLM key aliases. "
-                "Spend is the value recorded by LiteLLM; $0.0000 does not prove there was no provider cost.")
-    else:
-        note = "Per-request logs were unavailable, so application statistics could not be calculated."
     return (f'<div style="{report.FONT}max-width:1100px;margin:0 auto;background:#ffffff;padding:0 20px 20px">'
             f'<h2 style="{report.H2}">Applications</h2>'
             + report.table(["Application", "Requests", "Failed", "Spend",
                             "Input / output tokens", "p95 latency"], rows)
-            + f'<p style="{report.FONT}font-size:11px;color:#6b7280;margin:6px 0">{note}</p></div>')
+            + '</div>')
 
 
 def main():
