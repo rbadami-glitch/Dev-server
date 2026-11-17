@@ -15,6 +15,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
+ALIASES_FILE = HERE / "application_aliases.local.json"
 APPLICATIONS = ("PCB", "FedIntel", "Wren AI")
 
 
@@ -41,6 +42,26 @@ def prompt_application_aliases():
     normalized = [normalize_alias(alias) for names in selected.values() for alias in names]
     if len(normalized) != len(set(normalized)):
         raise ValueError("Each alias must be entered only once")
+    return selected
+
+
+def load_application_aliases(configure=False):
+    """Reuse the server-local alias file; prompt only when it is absent or reset."""
+    if not configure and ALIASES_FILE.exists():
+        selected = json.loads(ALIASES_FILE.read_text(encoding="utf-8-sig"))
+        if not isinstance(selected, dict) or set(selected) != set(APPLICATIONS):
+            raise ValueError(f"Invalid application alias file: {ALIASES_FILE}")
+        if any(not isinstance(names, list) or not names or
+               not all(isinstance(name, str) and name.strip() for name in names)
+               for names in selected.values()):
+            raise ValueError(f"Invalid application aliases in: {ALIASES_FILE}")
+        normalized = [normalize_alias(name) for names in selected.values() for name in names]
+        if len(normalized) != len(set(normalized)):
+            raise ValueError(f"Duplicate application aliases in: {ALIASES_FILE}")
+        return selected
+    selected = prompt_application_aliases()
+    ALIASES_FILE.write_text(json.dumps(selected, indent=2) + "\n", encoding="utf-8")
+    print(f"Saved application aliases locally: {ALIASES_FILE}")
     return selected
 
 
@@ -93,6 +114,7 @@ def main():
     parser.add_argument("--report-dir", type=Path, required=True,
                         help="Folder containing litellm_report.py and its config.json")
     parser.add_argument("--days", type=float, default=1)
+    parser.add_argument("--configure", action="store_true", help="Re-enter and save application aliases")
     args = parser.parse_args()
     if args.days <= 0:
         parser.error("--days must be positive")
@@ -105,7 +127,7 @@ def main():
     cfg = report.load_config(report_dir / "config.json")
     if not cfg["litellm_api_key"]:
         parser.error("litellm_api_key is missing")
-    selected = prompt_application_aliases()
+    selected = load_application_aliases(args.configure)
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=args.days)
     rows, source = report.fetch_request_logs(cfg, start, end)

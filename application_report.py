@@ -8,30 +8,14 @@ Preview by default; pass --send only after reviewing the generated HTML.
 import argparse
 import json
 import sys
-from datetime import datetime, timezone
+from datetime import datetime
 from pathlib import Path
 
-from application_diagnostic import APPLICATIONS, prompt_application_aliases, summarize
+from application_diagnostic import load_application_aliases, summarize
 
 
 HERE = Path(__file__).resolve().parent
-ALIASES_FILE = HERE / "application_aliases.local.json"
 OUTPUT_DIR = HERE / "application-reports"
-
-
-def load_aliases(configure=False):
-    if configure or not ALIASES_FILE.exists():
-        aliases = prompt_application_aliases()
-        ALIASES_FILE.write_text(json.dumps(aliases, indent=2) + "\n", encoding="utf-8")
-        print(f"Saved application aliases locally: {ALIASES_FILE}")
-        return aliases
-    aliases = json.loads(ALIASES_FILE.read_text(encoding="utf-8-sig"))
-    if not isinstance(aliases, dict) or set(aliases) != set(APPLICATIONS):
-        raise ValueError("Application alias file must define PCB, FedIntel, and Wren AI")
-    if any(not isinstance(names, list) or not names or not all(isinstance(n, str) and n.strip() for n in names)
-           for names in aliases.values()):
-        raise ValueError("Each application must have one or more key aliases")
-    return aliases
 
 
 def compact(value):
@@ -85,7 +69,7 @@ def main():
     cfg = report.load_config(report_dir / "config.json")
     if not cfg["litellm_api_key"]:
         parser.error("litellm_api_key is missing")
-    aliases = load_aliases(args.configure)
+    aliases = load_application_aliases(args.configure)
     days = args.days if args.days is not None else float(cfg["report_days"])
     data = report.collect(cfg, days)
     extra = report.api_get(cfg, "/key/list", {"return_full_object": "true", "page_size": 500})
