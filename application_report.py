@@ -74,11 +74,16 @@ def simplify_period_labels(report, body, cfg, data, days):
 
 
 def fit_to_viewport(body):
-    """Keep wide report tables and long identifiers inside the page width."""
+    """Use nearly the full page width and wrap long values inside tables."""
     body = body.replace(
-        'max-width:1100px;margin:0 auto;',
-        'width:100%;max-width:1100px;box-sizing:border-box;margin:0 auto;'
-        'overflow-wrap:anywhere;word-break:break-word;',
+        'max-width:1100px;margin:0 auto;background:#ffffff;padding:20px',
+        'width:98%;max-width:none;box-sizing:border-box;margin:0 auto;'
+        'background:#ffffff;padding:20px 0;overflow-wrap:anywhere;word-break:break-word;',
+    )
+    body = body.replace(
+        'max-width:1100px;margin:0 auto;background:#ffffff;padding:0 20px 20px',
+        'width:98%;max-width:none;box-sizing:border-box;margin:0 auto;'
+        'background:#ffffff;padding:0 0 20px;overflow-wrap:anywhere;word-break:break-word;',
     )
     body = body.replace(
         'style="border-collapse:collapse;',
