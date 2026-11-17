@@ -1,7 +1,8 @@
 <#
 .SYNOPSIS
 Copy this file beside the original Run-Report.ps1, then right-click it and
-choose "Run with PowerShell" to email the report with the Applications table.
+choose "Run with PowerShell" to email the combined report.
+Recipients come from the active email_to setting in config.json.
 The original report files are not changed. The window stays open afterward.
 #>
 
@@ -15,7 +16,6 @@ $alertDir = if (Test-Path -LiteralPath (Join-Path $scriptFolder 'litellm_report.
 }
 $configPath = Join-Path $alertDir 'config.json'
 $runner = Join-Path $devRoot 'Run-ApplicationDaily.ps1'
-$expectedRecipientsHash = '0f950afa6b455b1d26cd5385318a164c214e35a4080b15c368ca255c03006031'
 $exitCode = 0
 
 try {
@@ -24,24 +24,19 @@ try {
 
     $config = Get-Content -LiteralPath $configPath -Raw | ConvertFrom-Json
     $recipients = @($config.email_to | ForEach-Object { $_ -split '[,;\s]+' } |
-        Where-Object { $_ } | ForEach-Object { $_.Trim().ToLowerInvariant() })
-    $sorted = @($recipients | Sort-Object -Unique)
-    $joined = $sorted -join ','
-    $sha256 = [System.Security.Cryptography.SHA256]::Create()
-    try {
-        $bytes = [System.Text.Encoding]::UTF8.GetBytes($joined)
-        $digest = [System.BitConverter]::ToString($sha256.ComputeHash($bytes)).Replace('-', '').ToLowerInvariant()
-    } finally {
-        $sha256.Dispose()
-    }
-    if ($recipients.Count -ne 2 -or $digest -ne $expectedRecipientsHash) {
-        throw "Stopped: recipient list has changed. Current recipients: $($recipients -join ', ')"
+        Where-Object { $_ } | ForEach-Object { $_.Trim() })
+    if ($recipients.Count -eq 0) { throw 'No recipients in config.json email_to.' }
+    $invalid = @($recipients | Where-Object { $_ -notmatch '^[^@\s]+@[^@\s]+\.[^@\s]+$' })
+    if ($invalid.Count) { throw "Invalid email_to recipient(s): $($invalid -join ', ')" }
+    if (@($recipients | Sort-Object -Unique).Count -ne $recipients.Count) {
+        throw 'Duplicate recipient in config.json email_to.'
     }
     if (-not $config.resend_api_key -and -not $env:RESEND_API_KEY) {
         throw 'Resend API key is missing from config and environment.'
     }
 
-    Write-Host "Sending the report to: $($recipients -join ', ')" -ForegroundColor Cyan
+    Write-Host 'Sending the combined report to these config.json email_to recipients:' -ForegroundColor Cyan
+    $recipients | ForEach-Object { Write-Host "  $_" -ForegroundColor Cyan }
     & $runner -Send -Days 1 -ReportDir $alertDir -TryCollapsibleFailures
     Write-Host 'Email sent successfully.' -ForegroundColor Green
 } catch {
