@@ -23,6 +23,31 @@ def normalize_alias(value):
     return " ".join(str(value).split()).casefold()
 
 
+def as_object(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except (TypeError, ValueError):
+            return {}
+    return value if isinstance(value, dict) else {}
+
+
+def reasoning_tokens(row, metadata):
+    """Return a reported reasoning count, or None when usage does not provide it."""
+    for usage in (metadata.get("usage_object"), row.get("usage_object"),
+                  row, metadata.get("additional_usage_values")):
+        details = as_object(as_object(usage).get("completion_tokens_details"))
+        value = details.get("reasoning_tokens")
+        if value is not None:
+            try:
+                count = int(value)
+            except (TypeError, ValueError):
+                continue
+            if count >= 0:
+                return count
+    return None
+
+
 def prompt_application_aliases():
     """Read key aliases, never private keys, from the operator's terminal."""
     selected = {}
@@ -68,7 +93,9 @@ def load_application_aliases(configure=False):
 def summarize(report, rows, aliases, selected, start, end):
     alias_to_app = {normalize_alias(alias): app for app, names in selected.items() for alias in names}
     groups = {app: {"requests": 0, "failed": 0, "spend_usd": 0.0,
-                    "input_tokens": 0, "output_tokens": 0, "latencies_s": []}
+                    "input_tokens": 0, "output_tokens": 0,
+                    "reasoning_tokens": 0, "reasoning_reported_requests": 0,
+                    "latencies_s": []}
               for app in selected}
     total_rows = 0
     unmatched_rows = 0
@@ -92,6 +119,10 @@ def summarize(report, rows, aliases, selected, start, end):
         bucket["spend_usd"] += float(row.get("spend") or 0)
         bucket["input_tokens"] += int(row.get("prompt_tokens") or 0)
         bucket["output_tokens"] += int(row.get("completion_tokens") or 0)
+        reported_reasoning = reasoning_tokens(row, meta)
+        if reported_reasoning is not None:
+            bucket["reasoning_tokens"] += reported_reasoning
+            bucket["reasoning_reported_requests"] += 1
         finish = report.parse_ts(row.get("endTime"))
         if finish and finish >= ts:
             bucket["latencies_s"].append((finish - ts).total_seconds())

@@ -30,18 +30,22 @@ def render_applications(report, summary, has_logs):
     rows = []
     for b in summary["application_stats"]:
         if not has_logs:
-            rows.append([b["application"], "-", "-", "-", "-", "-"])
+            rows.append([b["application"], "-", "-", "-", "-", "-", "-", "-"])
             continue
         lat = b["p95_latency_s"]
+        reasoning = (compact(b["reasoning_tokens"])
+                     if b["reasoning_reported_requests"] else "-")
+        if b["reasoning_reported_requests"] and b["reasoning_reported_requests"] < b["requests"]:
+            reasoning += " (partial)"
         rows.append([b["application"], report.num(b["requests"]),
                      f"{report.num(b['failed'])} ({report.pct(b['failed'], b['requests'])})",
                      report.money(b["spend_usd"]),
-                     f"{compact(b['input_tokens'])} / {compact(b['output_tokens'])}",
+                     compact(b["input_tokens"]), compact(b["output_tokens"]), reasoning,
                      f"{lat:.1f}s" if lat is not None else "-"])
     return (f'<div style="{report.FONT}max-width:1100px;margin:0 auto;background:#ffffff;padding:0 20px 20px">'
             f'<h2 style="{report.H2}">Applications</h2>'
-            + report.table(["Application", "Requests", "Failed", "Spend",
-                            "Input / output tokens", "p95 latency"], rows)
+            + report.table(["Application", "Requests", "Failed", "Spend", "Input tokens",
+                            "Output tokens", "Reasoning tokens (in output)", "p95 latency"], rows)
             + '</div>')
 
 
