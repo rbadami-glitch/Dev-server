@@ -50,16 +50,24 @@ def render_applications(report, summary, has_logs):
             + '</div>')
 
 
-def group_latest_failures(report, original_html, failed_rows):
-    """Trial: replace only the rendered latest-failures table, never the source report."""
-    marker = "Latest failed requests ("
+def replace_rendered_table(original_html, marker, next_marker, replacement):
+    """Replace one rendered section; leave litellm_report.py untouched."""
     heading = original_html.find(marker)
     start = original_html.rfind('<p style=', 0, heading)
     if heading < 0 or start < 0 or start > heading:
-        raise ValueError("Could not locate latest failed requests table")
-    end = original_html.find("<h2 ", heading)
+        raise ValueError(f"Could not locate report table: {marker}")
+    end = original_html.find(next_marker, heading)
     if end < 0:
-        raise ValueError("Could not locate the section after latest failed requests")
+        raise ValueError(f"Could not locate report section: {next_marker}")
+    if not next_marker.startswith("<"):
+        end = original_html.rfind('<p style=', heading, end)
+        if end < 0:
+            raise ValueError(f"Could not locate paragraph before: {next_marker}")
+    return original_html[:start] + replacement + original_html[end:]
+
+
+def grouped_failure_rows(report, failed_rows):
+    """Group matching failures while keeping every user and key distinct."""
 
     groups = {}
     for row in failed_rows:
@@ -79,16 +87,37 @@ def group_latest_failures(report, original_html, failed_rows):
         )
         details = (f'<details><summary style="cursor:pointer;color:#1d4ed8">'
                    f'Show {len(requests)} request ID(s)</summary>{request_rows}</details>')
-        rendered_rows.append([requests[0]["time"], model, key, user, code,
-                              message, str(len(requests)), details])
+        rendered_rows.append([code, model, key, user, message,
+                              str(len(requests)), requests[0]["time"], details])
+    return rendered_rows, len(groups)
+
+
+def group_error_types(report, original_html, failed_rows):
+    """Put expandable request IDs in the top Issues and reliability table."""
+    rendered_rows, group_count = grouped_failure_rows(report, failed_rows)
+    replacement = (
+        f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:0 0 2px">'
+        f'Failure groups by user: {len(failed_rows)} failed requests in this report period, '
+        f'{group_count} groups</p>'
+        + report.table(["Code", "Model", "Key", "User", "Error", "Count",
+                        "Last seen", "Request IDs"], rendered_rows, 4)
+    )
+    return replace_rendered_table(original_html, "Error types grouped (",
+                                  "Failure rate by model", replacement)
+
+
+def group_latest_failures(report, original_html, failed_rows):
+    """Also group the recent failure table in the opt-in trial."""
+    rendered_rows, group_count = grouped_failure_rows(report, failed_rows)
     replacement = (
         f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:10px 0 2px">'
-        f'Latest failed requests: {len(failed_rows)} shown, grouped into {len(groups)} rows '
+        f'Latest failed requests: {len(failed_rows)} shown, grouped into {group_count} rows '
         f'(counts cover only these {len(failed_rows)} requests)</p>'
-        + report.table(["Latest time", "Model", "Key", "User", "Code", "Error",
-                        "Count", "Request IDs"], rendered_rows, 99)
+        + report.table(["Code", "Model", "Key", "User", "Error", "Count",
+                        "Last seen", "Request IDs"], rendered_rows, 4)
     )
-    return original_html[:start] + replacement + original_html[end:]
+    return replace_rendered_table(original_html, "Latest failed requests (",
+                                  '<h2 ', replacement)
 
 
 def main():
@@ -99,7 +128,7 @@ def main():
     parser.add_argument("--configure", action="store_true", help="Re-enter and save application aliases")
     parser.add_argument("--send", action="store_true", help="Send the extended report by email")
     parser.add_argument("--try-collapsible-failures", action="store_true",
-                        help="Trial grouped latest failures with expandable request IDs")
+                        help="Trial grouped failures with expandable request IDs")
     args = parser.parse_args()
     if args.days is not None and args.days <= 0:
         parser.error("--days must be positive")
@@ -123,12 +152,18 @@ def main():
                 token = key.get("token") or key.get("key")
                 if token:
                     alias_map[token] = key["key_alias"]
-    current = report.aggregate(cfg, data, data["logs"])
+    current_cfg = dict(cfg)
+    if args.try_collapsible_failures:
+        current_cfg["max_failed_rows"] = max(len(data["logs"]), cfg["max_failed_rows"])
+    current = report.aggregate(current_cfg, data, data["logs"])
     previous = report.aggregate(cfg, data, data["prev_logs"])
     bullets, alerts = report.build_insights(cfg, current, previous, data)
     base_html = report.render_html(cfg, data, current, previous, days, bullets, alerts)
+    if args.try_collapsible_failures and current["failed_rows"]:
+        base_html = group_error_types(report, base_html, current["failed_rows"])
     if args.try_collapsible_failures:
-        base_html = group_latest_failures(report, base_html, current["failed_rows"])
+        base_html = group_latest_failures(report, base_html,
+                                          current["failed_rows"][:cfg["max_failed_rows"]])
     summary = summarize(report, data["logs"], alias_map, aliases,
                         data["window_start"], data["window_end"])
     extended_html = base_html + "\n" + render_applications(report, summary, bool(data["logs"]))
