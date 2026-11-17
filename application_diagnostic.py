@@ -93,7 +93,7 @@ def load_application_aliases(configure=False):
 def summarize(report, rows, aliases, selected, start, end):
     alias_to_app = {normalize_alias(alias): app for app, names in selected.items() for alias in names}
     groups = {app: {"requests": 0, "failed": 0, "spend_usd": 0.0,
-                    "input_tokens": 0, "output_tokens": 0,
+                    "input_tokens": 0, "output_tokens": 0, "total_tokens": 0,
                     "reasoning_tokens": 0, "reasoning_reported_requests": 0,
                     "latencies_s": []}
               for app in selected}
@@ -119,6 +119,7 @@ def summarize(report, rows, aliases, selected, start, end):
         bucket["spend_usd"] += float(row.get("spend") or 0)
         bucket["input_tokens"] += int(row.get("prompt_tokens") or 0)
         bucket["output_tokens"] += int(row.get("completion_tokens") or 0)
+        bucket["total_tokens"] += int(row.get("total_tokens") or 0)
         reported_reasoning = reasoning_tokens(row, meta)
         if reported_reasoning is not None:
             bucket["reasoning_tokens"] += reported_reasoning
