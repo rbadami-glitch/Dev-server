@@ -6,6 +6,7 @@ The original alert scripts and scheduled jobs are not modified.
 param(
     [double]$Days = 1,
     [switch]$Send,
+    [switch]$TryCollapsibleFailures,
     [string]$ReportDir = 'D:\git pull for sanjay\cw-ai-coe-litellm-alert'
 )
 
@@ -26,6 +27,7 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 $log = Join-Path $logDir ("application-report_{0}.log" -f (Get-Date -Format 'yyyyMMdd_HHmmss'))
 $arguments = @('-B', $script, '--report-dir', $ReportDir, '--days', [string]$Days)
 if ($Send) { $arguments += '--send' }
+if ($TryCollapsibleFailures) { $arguments += '--try-collapsible-failures' }
 
 & $python @arguments 2>&1 | Tee-Object -FilePath $log
 $code = $LASTEXITCODE
