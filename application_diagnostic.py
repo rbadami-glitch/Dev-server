@@ -10,9 +10,7 @@ written. No API keys, raw request rows, or plaintext results are stored here.
 
 import argparse
 import json
-import re
 import sys
-from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -20,15 +18,43 @@ from litellm_request_evidence import encrypt_payload
 
 
 HERE = Path(__file__).resolve().parent
-APP_PATTERN = re.compile(r"pcb|fed[\s_-]*intel|wren", re.IGNORECASE)
+APPLICATIONS = ("PCB", "FedIntel", "Wren AI")
 
 
-def summarize(report, rows, aliases, start, end):
-    groups = defaultdict(lambda: {"requests": 0, "failed": 0, "spend_usd": 0.0,
-                                  "input_tokens": 0, "output_tokens": 0,
-                                  "latencies_s": []})
+def normalize_alias(value):
+    return " ".join(str(value).split()).casefold()
+
+
+def prompt_application_aliases():
+    """Read key aliases, never private keys, from the operator's terminal."""
+    selected = {}
+    print("Paste LiteLLM key aliases, not private keys. Separate multiple aliases with commas.")
+    for app in APPLICATIONS:
+        while True:
+            entered = input(f"{app} key alias: ").strip()
+            names = [part.strip() for part in entered.split(",") if part.strip()]
+            if not names:
+                print("Enter at least one alias for this application.")
+                continue
+            if any(name.lower().startswith(("sk-", "bearer ")) for name in names):
+                print("That looks like a private key. Enter its alias instead.")
+                continue
+            selected[app] = names
+            break
+    normalized = [normalize_alias(alias) for names in selected.values() for alias in names]
+    if len(normalized) != len(set(normalized)):
+        raise ValueError("Each alias must be entered only once")
+    return selected
+
+
+def summarize(report, rows, aliases, selected, start, end):
+    alias_to_app = {normalize_alias(alias): app for app, names in selected.items() for alias in names}
+    groups = {app: {"requests": 0, "failed": 0, "spend_usd": 0.0,
+                    "input_tokens": 0, "output_tokens": 0, "latencies_s": []}
+              for app in selected}
     total_rows = 0
     unmatched_rows = 0
+    seen_aliases = {app: set() for app in selected}
     for row in rows:
         ts = report.parse_ts(row.get("startTime"))
         if ts is None or not start <= ts <= end:
@@ -37,10 +63,12 @@ def summarize(report, rows, aliases, start, end):
         meta = report.row_meta(row)
         alias = (meta.get("user_api_key_alias") or row.get("key_alias")
                  or aliases.get(row.get("api_key")) or "")
-        if not APP_PATTERN.search(str(alias)):
+        app = alias_to_app.get(normalize_alias(alias))
+        if app is None:
             unmatched_rows += 1
             continue
-        bucket = groups[str(alias)]
+        seen_aliases[app].add(str(alias))
+        bucket = groups[app]
         bucket["requests"] += 1
         bucket["failed"] += str(row.get("status") or "success").lower() in ("failure", "failed", "error")
         bucket["spend_usd"] += float(row.get("spend") or 0)
@@ -49,16 +77,18 @@ def summarize(report, rows, aliases, start, end):
         finish = report.parse_ts(row.get("endTime"))
         if finish and finish >= ts:
             bucket["latencies_s"].append((finish - ts).total_seconds())
-    matching_aliases = sorted({str(alias) for alias in aliases.values() if APP_PATTERN.search(str(alias))})
+    listed_aliases = sorted({str(alias) for alias in aliases.values()
+                             if normalize_alias(alias) in alias_to_app})
     stats = []
-    for alias, bucket in sorted(groups.items()):
+    for app, bucket in groups.items():
         latencies = sorted(bucket.pop("latencies_s"))
         bucket["spend_usd"] = round(bucket["spend_usd"], 6)
         bucket["latency_samples"] = len(latencies)
         bucket["p95_latency_s"] = round(report.percentile(latencies, .95), 3) if latencies else None
-        stats.append({"alias": alias, **bucket})
-    return {"request_rows_in_window": total_rows, "rows_without_candidate_alias": unmatched_rows,
-            "matching_key_aliases": matching_aliases, "application_alias_stats": stats}
+        stats.append({"application": app, "matched_log_aliases": sorted(seen_aliases[app]), **bucket})
+    return {"request_rows_in_window": total_rows, "rows_without_selected_alias": unmatched_rows,
+            "selected_aliases": selected, "matching_listed_key_aliases": listed_aliases,
+            "application_stats": stats}
 
 
 def main():
@@ -78,6 +108,7 @@ def main():
     cfg = report.load_config(report_dir / "config.json")
     if not cfg["litellm_api_key"]:
         parser.error("litellm_api_key is missing")
+    selected = prompt_application_aliases()
     end = datetime.now(timezone.utc)
     start = end - timedelta(days=args.days)
     rows, source = report.fetch_request_logs(cfg, start, end)
@@ -92,7 +123,7 @@ def main():
     payload = {"generated_utc": end.isoformat(), "window_start_utc": start.isoformat(),
                "window_end_utc": end.isoformat(), "log_source": source,
                "collection_warning_count": len(report.WARNINGS),
-               **summarize(report, rows, aliases, start, end)}
+               **summarize(report, rows, aliases, selected, start, end)}
     ciphertext = encrypt_payload((json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8"))
     output_dir = HERE / "encrypted-evidence"
     output_dir.mkdir(exist_ok=True)
@@ -100,8 +131,8 @@ def main():
     with output.open("xb") as file:
         file.write(ciphertext)
     print(f"Encrypted diagnostic: {output}")
-    print(f"Candidate aliases: {len(payload['matching_key_aliases'])}; "
-          f"matched groups: {len(payload['application_alias_stats'])}")
+    print(f"Matching listed key aliases: {len(payload['matching_listed_key_aliases'])}; "
+          f"matched requests: {payload['request_rows_in_window'] - payload['rows_without_selected_alias']}")
     print("No email was sent. No plaintext diagnostic was written.")
 
 
