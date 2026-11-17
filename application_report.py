@@ -6,11 +6,9 @@ Preview by default; pass --send only after reviewing the generated HTML.
 """
 
 import argparse
-import html
 import json
-import re
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime
 from pathlib import Path
 
 from application_diagnostic import load_application_aliases, summarize
@@ -47,77 +45,6 @@ def render_applications(report, summary, has_logs):
             + '</div>')
 
 
-def simplify_period_labels(report, body, cfg, data, days):
-    """Explain the existing rolling comparison using plain labels and local dates."""
-    span = "24 hours" if days == 1 else f"{days:g} days"
-    current_label = f"Last {span}"
-    previous_label = f"Previous {span}"
-    local_tz = timezone(timedelta(hours=float(cfg["timezone_offset_hours"])))
-    previous_start = data["prev_start"].astimezone(local_tz)
-    current_start = data["window_start"].astimezone(local_tz)
-    current_end = data["window_end"].astimezone(local_tz)
-    tz_label = html.escape(cfg["timezone_label"])
-    heading = f'<h2 style="{report.H2}">Period over period</h2>'
-    explanation = (
-        f'<h2 style="{report.H2}">Usage comparison</h2>'
-        f'<p style="{report.FONT}font-size:12px;color:#374151;margin:4px 0 8px">'
-        f'{previous_label}: {previous_start:%d %b %H:%M} to {current_start:%d %b %H:%M} {tz_label}<br>'
-        f'{current_label}: {current_start:%d %b %H:%M} to {current_end:%d %b %H:%M} {tz_label}</p>'
-    )
-    body = body.replace(heading, explanation)
-    body = body.replace('>Prior period</th>', f'>{previous_label}</th>')
-    body = body.replace('>This period</th>', f'>{current_label}</th>')
-    body = body.replace('vs prior period', f'vs {previous_label.lower()}')
-    body = body.replace('No prior-period data', f'No data from {previous_label.lower()}')
-    body = body.replace('period over period', f'compared with {previous_label.lower()}')
-    return body
-
-
-def fit_to_viewport(body):
-    """Use nearly the full page width and wrap long values inside tables."""
-    body = body.replace(
-        'max-width:1100px;margin:0 auto;background:#ffffff;padding:20px',
-        'width:98%;max-width:none;box-sizing:border-box;margin:0 auto;'
-        'background:#ffffff;padding:20px 0;overflow-wrap:anywhere;word-break:break-word;',
-    )
-    body = body.replace(
-        'max-width:1100px;margin:0 auto;background:#ffffff;padding:0 20px 20px',
-        'width:98%;max-width:none;box-sizing:border-box;margin:0 auto;'
-        'background:#ffffff;padding:0 0 20px;overflow-wrap:anywhere;word-break:break-word;',
-    )
-    body = body.replace(
-        'style="border-collapse:collapse;',
-        'style="border-collapse:collapse;table-layout:fixed;width:100%;max-width:100%;',
-    )
-    def responsive_bar(match):
-        color, pixels = match.groups()
-        width = min(100, 100 * int(pixels) / 140)
-        return (f'<span style="display:inline-block;width:{width:.1f}%;max-width:100%;'
-                f'height:10px;background:{color};vertical-align:middle"></span>')
-
-    body = re.sub(
-        r'<table cellpadding="0" cellspacing="0" style="display:inline-table"><tr>'
-        r'<td style="background:(#[0-9a-fA-F]+);width:(\d+)px;height:10px;'
-        r'font-size:0;line-height:0">&nbsp;</td></tr></table>',
-        responsive_bar,
-        body,
-    )
-    body = re.sub(
-        r'(<(?:td|th)\b[^>]*?\bstyle=")',
-        r'\1box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;word-break:break-word;',
-        body,
-        flags=re.IGNORECASE,
-    )
-    stylesheet = (
-        '<style>html,body{width:100%;max-width:100%;margin:0;padding:0}'
-        '*,*::before,*::after{box-sizing:border-box}'
-        'table{max-width:100%}'
-        'td,th,p,li,code,pre{white-space:normal;overflow-wrap:anywhere;word-break:break-word}'
-        '</style>'
-    )
-    return stylesheet + body
-
-
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report-dir", type=Path, required=True,
@@ -152,12 +79,9 @@ def main():
     previous = report.aggregate(cfg, data, data["prev_logs"])
     bullets, alerts = report.build_insights(cfg, current, previous, data)
     base_html = report.render_html(cfg, data, current, previous, days, bullets, alerts)
-    base_html = simplify_period_labels(report, base_html, cfg, data, days)
     summary = summarize(report, data["logs"], alias_map, aliases,
                         data["window_start"], data["window_end"])
-    extended_html = fit_to_viewport(
-        base_html + "\n" + render_applications(report, summary, bool(data["logs"]))
-    )
+    extended_html = base_html + "\n" + render_applications(report, summary, bool(data["logs"]))
     csv_report = report.render_csv(current)
 
     OUTPUT_DIR.mkdir(exist_ok=True)
