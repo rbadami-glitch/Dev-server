@@ -4,3 +4,5 @@ __pycache__/
 *.pem.private
 decrypted-evidence/
 *.tmp
+application_aliases.local.json
+application-reports/

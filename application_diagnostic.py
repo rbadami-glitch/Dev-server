@@ -14,9 +14,6 @@ import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from litellm_request_evidence import encrypt_payload
-
-
 HERE = Path(__file__).resolve().parent
 APPLICATIONS = ("PCB", "FedIntel", "Wren AI")
 
@@ -124,6 +121,7 @@ def main():
                "window_end_utc": end.isoformat(), "log_source": source,
                "collection_warning_count": len(report.WARNINGS),
                **summarize(report, rows, aliases, selected, start, end)}
+    from litellm_request_evidence import encrypt_payload
     ciphertext = encrypt_payload((json.dumps(payload, separators=(",", ":")) + "\n").encode("utf-8"))
     output_dir = HERE / "encrypted-evidence"
     output_dir.mkdir(exist_ok=True)
