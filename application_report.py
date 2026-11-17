@@ -6,9 +6,10 @@ Preview by default; pass --send only after reviewing the generated HTML.
 """
 
 import argparse
+import html
 import json
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from application_diagnostic import load_application_aliases, summarize
@@ -45,6 +46,32 @@ def render_applications(report, summary, has_logs):
             + '</div>')
 
 
+def simplify_period_labels(report, body, cfg, data, days):
+    """Explain the existing rolling comparison using plain labels and local dates."""
+    span = "24 hours" if days == 1 else f"{days:g} days"
+    current_label = f"Last {span}"
+    previous_label = f"Previous {span}"
+    local_tz = timezone(timedelta(hours=float(cfg["timezone_offset_hours"])))
+    previous_start = data["prev_start"].astimezone(local_tz)
+    current_start = data["window_start"].astimezone(local_tz)
+    current_end = data["window_end"].astimezone(local_tz)
+    tz_label = html.escape(cfg["timezone_label"])
+    heading = f'<h2 style="{report.H2}">Period over period</h2>'
+    explanation = (
+        f'<h2 style="{report.H2}">Usage comparison</h2>'
+        f'<p style="{report.FONT}font-size:12px;color:#374151;margin:4px 0 8px">'
+        f'{previous_label}: {previous_start:%d %b %H:%M} to {current_start:%d %b %H:%M} {tz_label}<br>'
+        f'{current_label}: {current_start:%d %b %H:%M} to {current_end:%d %b %H:%M} {tz_label}</p>'
+    )
+    body = body.replace(heading, explanation)
+    body = body.replace('>Prior period</th>', f'>{previous_label}</th>')
+    body = body.replace('>This period</th>', f'>{current_label}</th>')
+    body = body.replace('vs prior period', f'vs {previous_label.lower()}')
+    body = body.replace('No prior-period data', f'No data from {previous_label.lower()}')
+    body = body.replace('period over period', f'compared with {previous_label.lower()}')
+    return body
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report-dir", type=Path, required=True,
@@ -79,6 +106,7 @@ def main():
     previous = report.aggregate(cfg, data, data["prev_logs"])
     bullets, alerts = report.build_insights(cfg, current, previous, data)
     base_html = report.render_html(cfg, data, current, previous, days, bullets, alerts)
+    base_html = simplify_period_labels(report, base_html, cfg, data, days)
     summary = summarize(report, data["logs"], alias_map, aliases,
                         data["window_start"], data["window_end"])
     extended_html = base_html + "\n" + render_applications(report, summary, bool(data["logs"]))
