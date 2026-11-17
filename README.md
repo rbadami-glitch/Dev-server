@@ -58,11 +58,12 @@ Set-Location '<your Dev-server checkout>'
 3. Copy the GitHub link shown by the UI and send that link for analysis. The
    filename is a SHA-256 digest of the ID; it does not contain the ID itself.
 
-The tool fetches the exact matching row from LiteLLM /spend/logs/v2,
-including all fields and metadata returned by that endpoint. It cannot
-recover request bodies, responses, finish_reason, or other details that
-LiteLLM did not store for that call. It also does not collect unrelated
-users' requests or broad server logs.
+The tool fetches the exact matching row from LiteLLM /spend/logs and any
+stored request/response details from /spend/logs/ui/{request_id}. The
+installed LiteLLM version requires start and end dates for /spend/logs/v2,
+so it cannot be queried with only the pasted ID. The exact-ID lookup does
+not collect unrelated users' requests or broad server logs. Fields that
+LiteLLM did not store for the call cannot be recovered.
 
 ## Decrypt and analyze on the analysis PC
 
@@ -95,6 +96,10 @@ owner if history purging is required.
 ## If something fails
 
 - No matching Request ID: use the ID from LiteLLM Logs, not a PCB-only ID.
+- HTTP 400 from a copy installed before this fix: close the UI, run
+  `git pull --ff-only` inside the server's Dev-server checkout, and launch
+  `Start-LiteLLM-Request-Evidence.cmd` again. The old version called
+  /spend/logs/v2 without its required dates.
 - Could not reach LiteLLM: run the UI on the Windows LiteLLM server; it
   queries 127.0.0.1:4000.
 - Git push failed: sign in to GitHub for Git on the server, then retry.

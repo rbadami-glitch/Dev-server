@@ -96,8 +96,10 @@ def fetch_spend_record(request_id: str, *, env_file: Path = DEFAULT_ENV_FILE,
                        gateway_url: str = GATEWAY_URL) -> dict[str, Any]:
     """Fetch only the exact LiteLLM request ID; no broad key or user search."""
     request_id = validate_request_id(request_id)
-    query = urllib.parse.urlencode({"request_id": request_id, "page": 1, "page_size": 100})
-    url = gateway_url.rstrip("/") + "/spend/logs/v2?" + query
+    # LiteLLM 1.91.4 requires start_date and end_date on /spend/logs/v2.
+    # The operator only supplies an ID, so use the exact-ID legacy endpoint.
+    query = urllib.parse.urlencode({"request_id": request_id})
+    url = gateway_url.rstrip("/") + "/spend/logs?" + query
     req = urllib.request.Request(
         url,
         headers={"Authorization": "Bearer " + read_master_key(env_file),
@@ -114,9 +116,8 @@ def fetch_spend_record(request_id: str, *, env_file: Path = DEFAULT_ENV_FILE,
     if len(raw) > MAX_API_RESPONSE_BYTES:
         raise EvidenceError("The LiteLLM response is too large. No data was published.")
     try:
-        parsed = json.loads(raw)
-        rows = parsed.get("data", [])
-    except (ValueError, AttributeError) as exc:
+        rows = json.loads(raw)
+    except ValueError as exc:
         raise EvidenceError("LiteLLM returned an unexpected response. No data was published.") from exc
     if not isinstance(rows, list):
         raise EvidenceError("LiteLLM returned an unexpected log list. No data was published.")
@@ -129,16 +130,47 @@ def fetch_spend_record(request_id: str, *, env_file: Path = DEFAULT_ENV_FILE,
     return exact[0]
 
 
-def make_payload(request_id: str, record: dict[str, Any]) -> bytes:
+def fetch_request_payload(request_id: str, *, env_file: Path = DEFAULT_ENV_FILE,
+                          gateway_url: str = GATEWAY_URL) -> dict[str, Any] | None:
+    """Fetch stored messages/response, if LiteLLM kept them for this request."""
+    request_id = validate_request_id(request_id)
+    url = gateway_url.rstrip("/") + "/spend/logs/ui/" + urllib.parse.quote(request_id, safe="")
+    req = urllib.request.Request(
+        url,
+        headers={"Authorization": "Bearer " + read_master_key(env_file),
+                 "Accept": "application/json"},
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=30) as response:
+            raw = response.read(MAX_API_RESPONSE_BYTES + 1)
+    except urllib.error.HTTPError as exc:
+        raise EvidenceError(f"LiteLLM detail lookup failed with HTTP {exc.code}. No data was published.") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise EvidenceError("Could not reach LiteLLM for request details. No data was published.") from exc
+    if len(raw) > MAX_API_RESPONSE_BYTES:
+        raise EvidenceError("LiteLLM request details are too large. No data was published.")
+    try:
+        payload = json.loads(raw)
+    except ValueError as exc:
+        raise EvidenceError("LiteLLM returned unexpected request details. No data was published.") from exc
+    if payload is not None and not isinstance(payload, dict):
+        raise EvidenceError("LiteLLM returned unexpected request details. No data was published.")
+    return payload
+
+
+def make_payload(request_id: str, record: dict[str, Any],
+                 request_payload: dict[str, Any] | None = None) -> bytes:
     payload = {
         "schema_version": 1,
         "captured_utc": datetime.now(timezone.utc).isoformat(),
-        "source": "LiteLLM /spend/logs/v2 exact request_id lookup",
+        "source": "LiteLLM /spend/logs exact request_id lookup and /spend/logs/ui/{request_id} details",
         "request_id": validate_request_id(request_id),
         "record": record,
+        "request_payload": request_payload,
         "limitations": (
-            "Contains the complete spend-log row returned by LiteLLM. "
-            "Request and response bodies absent from that row cannot be recovered by this tool."
+            "Contains the exact spend-log row and any request/response payload LiteLLM stored. "
+            "Fields not stored by LiteLLM cannot be recovered by this tool."
         ),
     }
     return json.dumps(payload, ensure_ascii=False, separators=(",", ":"), default=str).encode("utf-8")
@@ -276,7 +308,9 @@ def publish_request(request_id: str, *, remote_url: str = REMOTE_URL,
     check_operator_account()
     request_id = validate_request_id(request_id)
     record = fetch_spend_record(request_id, env_file=env_file, gateway_url=gateway_url)
-    ciphertext = encrypt_payload(make_payload(request_id, record))
+    request_payload = fetch_request_payload(request_id, env_file=env_file,
+                                            gateway_url=gateway_url)
+    ciphertext = encrypt_payload(make_payload(request_id, record, request_payload))
     path = evidence_name(request_id)
     commit = _publish_file(path, ciphertext, remote_url=remote_url)
     return {"path": path, "commit": commit,

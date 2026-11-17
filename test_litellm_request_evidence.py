@@ -48,9 +48,16 @@ class EvidenceTests(unittest.TestCase):
         class Handler(BaseHTTPRequestHandler):
             def do_GET(self) -> None:
                 seen.append((self.path, self.headers.get("Authorization")))
-                body = json.dumps({"data": [
-                    {"request_id": "chatcmpl-target-123", "metadata": {"x": 1}},
-                ]}).encode()
+                if self.path.startswith("/spend/logs/ui/"):
+                    body = json.dumps({"messages": "stored prompt",
+                                       "response": "stored answer"}).encode()
+                elif self.path.startswith("/spend/logs?"):
+                    body = json.dumps([
+                        {"request_id": "chatcmpl-target-123", "metadata": {"x": 1}},
+                    ]).encode()
+                else:
+                    self.send_error(400)
+                    return
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.send_header("Content-Length", str(len(body)))
@@ -70,8 +77,13 @@ class EvidenceTests(unittest.TestCase):
                 result = evidence.fetch_spend_record(
                     "chatcmpl-target-123", env_file=env_file,
                     gateway_url=f"http://127.0.0.1:{server.server_port}")
+                payload = evidence.fetch_request_payload(
+                    "chatcmpl-target-123", env_file=env_file,
+                    gateway_url=f"http://127.0.0.1:{server.server_port}")
                 self.assertEqual(result["metadata"]["x"], 1)
-                self.assertIn("request_id=chatcmpl-target-123", seen[0][0])
+                self.assertEqual(payload["response"], "stored answer")
+                self.assertEqual(seen[0][0], "/spend/logs?request_id=chatcmpl-target-123")
+                self.assertEqual(seen[1][0], "/spend/logs/ui/chatcmpl-target-123")
                 self.assertEqual(seen[0][1], "Bearer sk-test-only")
         finally:
             server.shutdown()
