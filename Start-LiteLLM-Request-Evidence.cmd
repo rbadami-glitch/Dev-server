@@ -3,6 +3,7 @@ setlocal
 cd /d "%~dp0"
 if not exist ".venv\Scripts\python.exe" (
     py -3.12 -m venv .venv
+    if errorlevel 1 python -m venv .venv
     if errorlevel 1 goto failed
 )
 ".venv\Scripts\python.exe" -c "import cryptography" >nul 2>nul
