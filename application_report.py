@@ -14,6 +14,7 @@ from datetime import datetime
 from pathlib import Path
 
 from application_diagnostic import load_application_aliases, summarize
+from capacity_report import render_capacity, summarize_capacity
 
 
 HERE = Path(__file__).resolve().parent
@@ -185,8 +186,12 @@ def main():
                                           current["failed_rows"][:cfg["max_failed_rows"]])
     summary = summarize(report, data["logs"], alias_map, aliases,
                         data["window_start"], data["window_end"])
-    extended_html = insert_applications(
-        report, base_html, render_applications(report, summary, bool(data["logs"])))
+    capacity = summarize_capacity(report, data["logs"], alias_map, aliases,
+                                  data["window_start"], data["window_end"],
+                                  cfg["timezone_offset_hours"])
+    extra_sections = (render_applications(report, summary, bool(data["logs"])) + "\n"
+                      + render_capacity(report, capacity, cfg["timezone_label"]))
+    extended_html = insert_applications(report, base_html, extra_sections)
     csv_report = report.render_csv(current)
 
     OUTPUT_DIR.mkdir(exist_ok=True)
