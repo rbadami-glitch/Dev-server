@@ -5,6 +5,8 @@ choose "Run with PowerShell" to email the report with the Applications table.
 The original report files are not changed. The window stays open afterward.
 #>
 
+param([switch]$TryCollapsibleFailures)
+
 $ErrorActionPreference = 'Stop'
 $scriptFolder = Split-Path -Parent $MyInvocation.MyCommand.Path
 $devRoot = 'D:\Ravi-github'
@@ -42,7 +44,7 @@ try {
     }
 
     Write-Host "Sending the report to: $($recipients -join ', ')" -ForegroundColor Cyan
-    & $runner -Send -Days 1 -ReportDir $alertDir
+    & $runner -Send -Days 1 -ReportDir $alertDir -TryCollapsibleFailures:$TryCollapsibleFailures
     Write-Host 'Email sent successfully.' -ForegroundColor Green
 } catch {
     $exitCode = 1
