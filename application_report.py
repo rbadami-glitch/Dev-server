@@ -6,6 +6,7 @@ Preview by default; pass --send only after reviewing the generated HTML.
 """
 
 import argparse
+import html
 import json
 import re
 import sys
@@ -81,14 +82,25 @@ def grouped_failure_rows(report, failed_rows):
     rendered_rows = []
     for (model, key, user, code, message), requests in groups.items():
         request_rows = report.table(
-            ["Time", "Request ID", "Original error"],
-            [[r["time"], r["request_id"] or "(missing)", r["error"]] for r in requests],
+            ["Time", "Request ID"],
+            [[r["time"], r["request_id"] or "(missing)"] for r in requests],
             99,
         )
-        details = (f'<details><summary style="cursor:pointer;color:#1d4ed8">'
-                   f'Show {len(requests)} request ID(s)</summary>{request_rows}</details>')
-        rendered_rows.append([code, model, key, user, message,
-                              str(len(requests)), requests[0]["time"], details])
+        request_rows = request_rows.replace('style="border-collapse:collapse;',
+                                            'style="table-layout:fixed;border-collapse:collapse;', 1)
+        details = (
+            f'<details style="width:100%"><summary style="cursor:pointer;color:#1d4ed8;'
+            f'overflow-wrap:anywhere">'
+            f'<strong>Show {len(requests)} request ID{"s" if len(requests) != 1 else ""}</strong> &middot; '
+            f'{html.escape(str(code or "-"))} &middot; {html.escape(str(model))} &middot; '
+            f'{html.escape(str(user))}<br>'
+            f'<span style="color:#374151">Key: {html.escape(str(key))} &middot; '
+            f'Last seen: {html.escape(str(requests[0]["time"]))} &middot; '
+            f'{html.escape(message)}</span></summary>'
+            f'<div style="width:100%;overflow-wrap:anywhere;word-break:break-word">'
+            f'{request_rows}</div></details>'
+        )
+        rendered_rows.append([details])
     return rendered_rows, len(groups)
 
 
@@ -99,8 +111,7 @@ def group_error_types(report, original_html, failed_rows):
         f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:0 0 2px">'
         f'Failure groups by user: {len(failed_rows)} failed requests in this report period, '
         f'{group_count} groups</p>'
-        + report.table(["Code", "Model", "Key", "User", "Error", "Count",
-                        "Last seen", "Request IDs"], rendered_rows, 4)
+        + report.table(["Failure group — open to view request IDs"], rendered_rows, 99)
     )
     return replace_rendered_table(original_html, "Error types grouped (",
                                   "Failure rate by model", replacement)
@@ -113,8 +124,7 @@ def group_latest_failures(report, original_html, failed_rows):
         f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:10px 0 2px">'
         f'Latest failed requests: {len(failed_rows)} shown, grouped into {group_count} rows '
         f'(counts cover only these {len(failed_rows)} requests)</p>'
-        + report.table(["Code", "Model", "Key", "User", "Error", "Count",
-                        "Last seen", "Request IDs"], rendered_rows, 4)
+        + report.table(["Failure group — open to view request IDs"], rendered_rows, 99)
     )
     return replace_rendered_table(original_html, "Latest failed requests (",
                                   '<h2 ', replacement)
