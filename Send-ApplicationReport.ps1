@@ -1,14 +1,20 @@
 <#
 .SYNOPSIS
-Right-click this file and choose "Run with PowerShell" to email the current
-LiteLLM report with the Applications table. The window stays open afterward.
+Copy this file beside the original Run-Report.ps1, then right-click it and
+choose "Run with PowerShell" to email the report with the Applications table.
+The original report files are not changed. The window stays open afterward.
 #>
 
 $ErrorActionPreference = 'Stop'
-$root = Split-Path -Parent $MyInvocation.MyCommand.Path
-$alertDir = 'D:\git pull for sanjay\cw-ai-coe-litellm-alert'
+$scriptFolder = Split-Path -Parent $MyInvocation.MyCommand.Path
+$devRoot = 'D:\Ravi-github'
+$alertDir = if (Test-Path -LiteralPath (Join-Path $scriptFolder 'litellm_report.py')) {
+    $scriptFolder
+} else {
+    'D:\git pull for sanjay\cw-ai-coe-litellm-alert'
+}
 $configPath = Join-Path $alertDir 'config.json'
-$runner = Join-Path $root 'Run-ApplicationDaily.ps1'
+$runner = Join-Path $devRoot 'Run-ApplicationDaily.ps1'
 $expectedRecipientsHash = '0f950afa6b455b1d26cd5385318a164c214e35a4080b15c368ca255c03006031'
 $exitCode = 0
 
