@@ -8,6 +8,7 @@ Preview by default; pass --send only after reviewing the generated HTML.
 import argparse
 import html
 import json
+import re
 import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -72,6 +73,46 @@ def simplify_period_labels(report, body, cfg, data, days):
     return body
 
 
+def fit_to_viewport(body):
+    """Keep wide report tables and long identifiers inside the page width."""
+    body = body.replace(
+        'max-width:1100px;margin:0 auto;',
+        'width:100%;max-width:1100px;box-sizing:border-box;margin:0 auto;'
+        'overflow-wrap:anywhere;word-break:break-word;',
+    )
+    body = body.replace(
+        'style="border-collapse:collapse;',
+        'style="border-collapse:collapse;table-layout:fixed;width:100%;max-width:100%;',
+    )
+    def responsive_bar(match):
+        color, pixels = match.groups()
+        width = min(100, 100 * int(pixels) / 140)
+        return (f'<span style="display:inline-block;width:{width:.1f}%;max-width:100%;'
+                f'height:10px;background:{color};vertical-align:middle"></span>')
+
+    body = re.sub(
+        r'<table cellpadding="0" cellspacing="0" style="display:inline-table"><tr>'
+        r'<td style="background:(#[0-9a-fA-F]+);width:(\d+)px;height:10px;'
+        r'font-size:0;line-height:0">&nbsp;</td></tr></table>',
+        responsive_bar,
+        body,
+    )
+    body = re.sub(
+        r'(<(?:td|th)\b[^>]*?\bstyle=")',
+        r'\1box-sizing:border-box;white-space:normal;overflow-wrap:anywhere;word-break:break-word;',
+        body,
+        flags=re.IGNORECASE,
+    )
+    stylesheet = (
+        '<style>html,body{width:100%;max-width:100%;margin:0;padding:0}'
+        '*,*::before,*::after{box-sizing:border-box}'
+        'table{max-width:100%}'
+        'td,th,p,li,code,pre{white-space:normal;overflow-wrap:anywhere;word-break:break-word}'
+        '</style>'
+    )
+    return stylesheet + body
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report-dir", type=Path, required=True,
@@ -109,7 +150,9 @@ def main():
     base_html = simplify_period_labels(report, base_html, cfg, data, days)
     summary = summarize(report, data["logs"], alias_map, aliases,
                         data["window_start"], data["window_end"])
-    extended_html = base_html + "\n" + render_applications(report, summary, bool(data["logs"]))
+    extended_html = fit_to_viewport(
+        base_html + "\n" + render_applications(report, summary, bool(data["logs"]))
+    )
     csv_report = report.render_csv(current)
 
     OUTPUT_DIR.mkdir(exist_ok=True)
