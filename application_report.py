@@ -162,25 +162,13 @@ def grouped_failure_rows(report, failed_rows):
     return rendered_rows, len(groups)
 
 
-def group_error_types(report, original_html, failed_rows):
-    """Put expandable request IDs in the top Issues and reliability table."""
-    rendered_rows, group_count = grouped_failure_rows(report, failed_rows)
-    replacement = (
-        f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:0 0 2px">'
-        f'Failure groups by user: {len(failed_rows)} failed requests in this report period, '
-        f'{group_count} groups</p>'
-        + report.table(["Failure group — open to view request IDs"], rendered_rows, 99)
-    )
-    return replace_rendered_table(original_html, "Error types grouped (",
-                                  "Failure rate by model", replacement)
-
-
 def group_latest_failures(report, original_html, failed_rows):
     """Also group the recent failure table in the opt-in trial."""
     rendered_rows, group_count = grouped_failure_rows(report, failed_rows)
     replacement = (
         f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:10px 0 2px">'
-        f'Latest failed requests: {len(failed_rows)} shown, grouped into {group_count} rows '
+        f'Latest failed requests: {len(failed_rows)} shown, grouped into '
+        f'{group_count} {"row" if group_count == 1 else "rows"} '
         f'(counts cover only these {len(failed_rows)} requests)</p>'
         + report.table(["Failure group — open to view request IDs"], rendered_rows, 99)
     )
@@ -220,20 +208,14 @@ def main():
                 token = key.get("token") or key.get("key")
                 if token:
                     alias_map[token] = key["key_alias"]
-    current_cfg = dict(cfg)
-    if args.try_collapsible_failures:
-        current_cfg["max_failed_rows"] = max(len(data["logs"]), cfg["max_failed_rows"])
-    current = report.aggregate(current_cfg, data, data["logs"])
+    current = report.aggregate(cfg, data, data["logs"])
     previous = report.aggregate(cfg, data, data["prev_logs"])
     bullets, alerts = report.build_insights(cfg, current, previous, data)
     base_html = report.render_html(cfg, data, current, previous, days, bullets, alerts)
     base_html = clarify_period_comparison(report, base_html, cfg, data, days)
     base_html = tidy_report_labels(base_html)
-    if args.try_collapsible_failures and current["failed_rows"]:
-        base_html = group_error_types(report, base_html, current["failed_rows"])
     if args.try_collapsible_failures:
-        base_html = group_latest_failures(report, base_html,
-                                          current["failed_rows"][:cfg["max_failed_rows"]])
+        base_html = group_latest_failures(report, base_html, current["failed_rows"])
     summary = summarize(report, data["logs"], alias_map, aliases,
                         data["window_start"], data["window_end"])
     capacity = summarize_capacity(report, data["logs"], alias_map, aliases,
