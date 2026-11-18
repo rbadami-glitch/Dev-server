@@ -10,7 +10,7 @@ import html
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from application_diagnostic import load_application_aliases, summarize
@@ -59,6 +59,39 @@ def insert_applications(report, original_html, applications_html):
     if position < 0:
         raise ValueError("Could not locate Top users section after period comparison")
     return original_html[:position] + applications_html + "\n" + original_html[position:]
+
+
+def clarify_period_comparison(report, original_html, cfg, data, days):
+    """Label the two rolling windows without changing other report sections."""
+    heading = f'<h2 style="{report.H2}">Period over period</h2>'
+    start = original_html.find(heading)
+    if start < 0:
+        return original_html
+    end = original_html.find(f'<h2 style="{report.H2}">Top users (by tokens)</h2>', start)
+    if end < 0:
+        raise ValueError("Could not locate section after period comparison")
+
+    span = "24 hours" if days == 1 else f"{days:g} days"
+    previous_label, current_label = f"Previous {span}", f"Last {span}"
+    local_tz = timezone(timedelta(hours=float(cfg["timezone_offset_hours"])))
+    previous_start = data["prev_start"].astimezone(local_tz)
+    current_start = data["window_start"].astimezone(local_tz)
+    current_end = data["window_end"].astimezone(local_tz)
+    tz_label = html.escape(str(cfg["timezone_label"]))
+    explanation = (
+        f'<p style="{report.FONT}font-size:12px;color:#374151;margin:4px 0 8px">'
+        f'{previous_label}: {previous_start:%d %b %Y %H:%M} to '
+        f'{current_start:%d %b %Y %H:%M} {tz_label}<br>'
+        f'{current_label}: {current_start:%d %b %Y %H:%M} to '
+        f'{current_end:%d %b %Y %H:%M} {tz_label}</p>'
+    )
+    section = original_html[start:end]
+    if '>Prior period</th>' not in section or '>This period</th>' not in section:
+        raise ValueError("Could not locate comparison column labels")
+    section = section.replace(heading, heading + explanation, 1)
+    section = section.replace('>Prior period</th>', f'>{previous_label}</th>', 1)
+    section = section.replace('>This period</th>', f'>{current_label}</th>', 1)
+    return original_html[:start] + section + original_html[end:]
 
 
 def replace_rendered_table(original_html, marker, next_marker, replacement):
@@ -179,6 +212,7 @@ def main():
     previous = report.aggregate(cfg, data, data["prev_logs"])
     bullets, alerts = report.build_insights(cfg, current, previous, data)
     base_html = report.render_html(cfg, data, current, previous, days, bullets, alerts)
+    base_html = clarify_period_comparison(report, base_html, cfg, data, days)
     if args.try_collapsible_failures and current["failed_rows"]:
         base_html = group_error_types(report, base_html, current["failed_rows"])
     if args.try_collapsible_failures:
