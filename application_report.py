@@ -100,7 +100,7 @@ def tidy_report_labels(original_html):
         r'<p style="[^"]*">Maximum tokens in a single day:.*?</p>',
         '', original_html, count=1, flags=re.DOTALL,
     )
-    for label in ("Failure rate by model", "Slowest requests"):
+    for label in ("Failure rate by model", "Slowest requests", "By tokens", "By spend"):
         body = body.replace(
             f'>{label}</p>',
             f'><strong style="font-size:13px;color:#111827">{label}</strong></p>',
