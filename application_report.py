@@ -109,6 +109,40 @@ def tidy_report_labels(original_html):
     return body
 
 
+def report_rows_with_request_emails(report, rows):
+    """Use a request email when end_user is only a device/session JSON blob."""
+    resolved = []
+    replaced = 0
+    unresolved = 0
+    for row in rows:
+        raw_user = row.get("end_user")
+        if not isinstance(raw_user, str) or not raw_user.startswith("{"):
+            resolved.append(row)
+            continue
+        try:
+            identity = json.loads(raw_user)
+        except ValueError:
+            resolved.append(row)
+            continue
+        if not isinstance(identity, dict) or not {"device_id", "session_id"} <= identity.keys():
+            resolved.append(row)
+            continue
+        metadata = report.row_meta(row)
+        if not isinstance(metadata, dict):
+            metadata = {}
+        candidates = (identity.get("email"), identity.get("user_email"),
+                      row.get("user"), metadata.get("user_api_key_end_user_id"))
+        email = next((value.strip() for value in candidates
+                      if isinstance(value, str) and re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", value.strip())), None)
+        if email:
+            resolved.append({**row, "end_user": email})
+            replaced += 1
+        else:
+            resolved.append(row)
+            unresolved += 1
+    return resolved, replaced, unresolved
+
+
 def replace_rendered_table(original_html, marker, next_marker, replacement):
     """Replace one rendered section; leave litellm_report.py untouched."""
     heading = original_html.find(marker)
@@ -208,8 +242,10 @@ def main():
                 token = key.get("token") or key.get("key")
                 if token:
                     alias_map[token] = key["key_alias"]
-    current = report.aggregate(cfg, data, data["logs"])
-    previous = report.aggregate(cfg, data, data["prev_logs"])
+    current_rows, resolved_now, unresolved_now = report_rows_with_request_emails(report, data["logs"])
+    previous_rows, _, _ = report_rows_with_request_emails(report, data["prev_logs"])
+    current = report.aggregate(cfg, data, current_rows)
+    previous = report.aggregate(cfg, data, previous_rows)
     bullets, alerts = report.build_insights(cfg, current, previous, data)
     base_html = report.render_html(cfg, data, current, previous, days, bullets, alerts)
     base_html = clarify_period_comparison(report, base_html, cfg, data, days)
@@ -235,6 +271,8 @@ def main():
     print(f"Preview: {html_path}")
     counts = [f"{b['application']}={b['requests']}" for b in summary["application_stats"]]
     print(f"Application requests: {', '.join(counts)}")
+    print(f"Device IDs replaced with request emails: {resolved_now}; "
+          f"without a request email: {unresolved_now}")
     if not args.send:
         print("Preview only; no email sent.")
         return 0
