@@ -108,7 +108,8 @@ def render_capacity(report, stats, timezone_label):
     """Render a new section without changing any original report section."""
     heading = f'<h2 style="{report.H2}">Capacity and peak demand</h2>'
     if not stats["requests"]:
-        return heading + f'<p style="{report.FONT}font-size:12px">No per-request logs in this period.</p>'
+        return heading + report.table(["Measure", "When", "Value"],
+                                      [["Request logs", "-", "Unavailable"]], 2)
 
     def at(value):
         return f"{value:%d %b %H:%M} {timezone_label}" if value else "-"
@@ -120,39 +121,33 @@ def render_capacity(report, stats, timezone_label):
     metrics = [
         ["Busiest hour", at(stats["peak_hour"]), report.num(stats["peak_hour_requests"]) + " requests"],
         ["Peak requests/minute", at(peak_req_at), report.num(peak_req)],
-        ["Peak input tokens/minute", at(peak_in_at), report.num(peak_in)],
-        ["Peak output tokens/minute", at(peak_out_at), report.num(peak_out)],
-        ["Peak concurrent requests", at(stats["peak_concurrent_at"]),
+        ["Peak input tokens/minute (request start)", at(peak_in_at), report.num(peak_in)],
+        ["Peak output tokens/minute (request start)", at(peak_out_at), report.num(peak_out)],
+        ["Peak concurrent requests (logged)", at(stats["peak_concurrent_at"]),
          report.num(concurrent) if concurrent is not None else "Unavailable"],
+        ["Requests with valid timing", "-",
+         f'{report.num(stats["valid_intervals"])} / {report.num(stats["requests"])}'],
     ]
+    has_queue = any(item["samples"] for item in stats["queue_by_model"])
+    if not has_queue:
+        metrics.append(["Model queue time", "-", "Unavailable"])
     result = heading + report.table(["Measure", "When", "Value"], metrics, 2)
-    result += (f'<p style="{report.FONT}font-size:11px;color:#6b7280">'
-               f'Concurrency is estimated from overlapping start/end times on '
-               f'{report.num(stats["valid_intervals"])} of {report.num(stats["requests"])} logged requests. '
-               f'Tokens are assigned to each request\'s start minute; output tokens are not measured as they stream.'
-               f'</p>')
 
     hour_total = stats["peak_hour_requests"]
     share_rows = [[app, report.num(count), report.pct(count, hour_total)]
                   for app, count in stats["app_peak_hour_counts"].items()]
     other = stats["other_peak_hour_requests"]
     share_rows.append(["Other users / unattributed", report.num(other), report.pct(other, hour_total)])
-    result += (f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:10px 0 2px">'
-               f'Share of all requests in the busiest hour ({at(stats["peak_hour"])})</p>'
-               + report.table(["Application / other", "Requests", "Share"], share_rows))
+    result += (f'<h3 style="{report.FONT}font-size:13px;color:#111827;margin:14px 0 4px">'
+               f'App share of busiest hour</h3>'
+               + report.table(["Application / other", "Requests", "% of busiest hour"], share_rows))
 
     queue_rows = [[item["model"], report.num(item["requests"]),
                    report.num(item["samples"]),
                    f'{item["p95_s"]:.2f}s' if item["p95_s"] is not None else "-"]
                   for item in stats["queue_by_model"]]
-    if any(item["samples"] for item in stats["queue_by_model"]):
-        result += (f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:10px 0 2px">'
-                   f'Reported model queue time (p95; only measured requests)</p>'
+    if has_queue:
+        result += (f'<h3 style="{report.FONT}font-size:13px;color:#111827;margin:14px 0 4px">'
+                   f'Model queue time</h3>'
                    + report.table(["Model", "Requests", "Queue samples", "p95 queue time"], queue_rows))
-    else:
-        result += (f'<p style="{report.FONT}font-size:12px;color:#6b7280;margin:10px 0 2px">'
-                   f'Model queue time: unavailable in the retrieved spend logs.</p>')
-    result += (f'<p style="{report.FONT}font-size:11px;color:#6b7280">'
-               f'Peak demand alone does not establish whether capacity was exhausted; '
-               f'compare with configured limits and measured queue time.</p>')
     return result

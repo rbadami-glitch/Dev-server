@@ -94,6 +94,21 @@ def clarify_period_comparison(report, original_html, cfg, data, days):
     return original_html[:start] + section + original_html[end:]
 
 
+def tidy_report_labels(original_html):
+    """Remove the requested daily-peak sentence and emphasize issue subheadings."""
+    body = re.sub(
+        r'<p style="[^"]*">Maximum tokens in a single day:.*?</p>',
+        '', original_html, count=1, flags=re.DOTALL,
+    )
+    for label in ("Failure rate by model", "Slowest requests"):
+        body = body.replace(
+            f'>{label}</p>',
+            f'><strong style="font-size:13px;color:#111827">{label}</strong></p>',
+            1,
+        )
+    return body
+
+
 def replace_rendered_table(original_html, marker, next_marker, replacement):
     """Replace one rendered section; leave litellm_report.py untouched."""
     heading = original_html.find(marker)
@@ -213,6 +228,7 @@ def main():
     bullets, alerts = report.build_insights(cfg, current, previous, data)
     base_html = report.render_html(cfg, data, current, previous, days, bullets, alerts)
     base_html = clarify_period_comparison(report, base_html, cfg, data, days)
+    base_html = tidy_report_labels(base_html)
     if args.try_collapsible_failures and current["failed_rows"]:
         base_html = group_error_types(report, base_html, current["failed_rows"])
     if args.try_collapsible_failures:
