@@ -16,7 +16,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 ALIASES_FILE = HERE / "application_aliases.local.json"
-APPLICATIONS = ("PCB", "FedIntel", "Wren AI")
+APPLICATIONS = ("PCB", "FedIntel", "CWPay")
 
 
 def normalize_alias(value):
@@ -74,6 +74,11 @@ def load_application_aliases(configure=False):
     """Reuse the server-local alias file; prompt only when it is absent or reset."""
     if not configure and ALIASES_FILE.exists():
         selected = json.loads(ALIASES_FILE.read_text(encoding="utf-8-sig"))
+        if isinstance(selected, dict) and set(selected) == {"PCB", "FedIntel", "Wren AI"}:
+            selected = {"CWPay" if app == "Wren AI" else app: names
+                        for app, names in selected.items()}
+            ALIASES_FILE.write_text(json.dumps(selected, indent=2) + "\n", encoding="utf-8")
+            print(f"Renamed Wren AI to CWPay in local application aliases: {ALIASES_FILE}")
         if not isinstance(selected, dict) or set(selected) != set(APPLICATIONS):
             raise ValueError(f"Invalid application alias file: {ALIASES_FILE}")
         if any(not isinstance(names, list) or not names or
