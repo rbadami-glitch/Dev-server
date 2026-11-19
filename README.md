@@ -125,8 +125,8 @@ evidence UI. Omit `--publish` for a read-only lookup. For a fresh clone, pass
 `--aliases-file` pointing to the existing server-local alias JSON; do not
 copy that private file into the public repository.
 
-The optional enum probe sends one small synthetic chat request to the public
-Gemma alias. Its only allowed citation ID is a random marker present in the
+The optional enum probe sends one small synthetic chat request to the matched
+public model group. Its only allowed citation ID is a random marker present in the
 JSON schema but absent from the prompt. The result reports whether the nested
 enum was respected and the finish reason; it never prints the marker or model
 answer. This tests the active route without PCB record contents.

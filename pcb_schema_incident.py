@@ -123,8 +123,8 @@ def main() -> int:
                         help="Publish each matched request with the existing encrypted exporter")
     parser.add_argument("--probe-enum", action="store_true",
                         help="Send one synthetic nested-enum request through this LiteLLM route")
-    parser.add_argument("--model", default="gemma4:31b-it-bf16",
-                        help="Public LiteLLM model name for the synthetic enum probe")
+    parser.add_argument("--model", default=None,
+                        help="Override the matched public LiteLLM model group for the enum probe")
     args = parser.parse_args()
     evidence.check_operator_account()
     report_dir = args.report_dir.resolve()
@@ -158,7 +158,12 @@ def main() -> int:
     else:
         print("Read-only lookup complete. Add --publish to export encrypted evidence.")
     if args.probe_enum:
-        respected, finish = probe_enum(cfg, args.model)
+        groups = {row.get("model_group") for _, row in matches}
+        if args.model is None and (len(groups) != 1 or None in groups):
+            raise RuntimeError("Could not identify one public model group for the matched calls.")
+        model = args.model or next(iter(groups))
+        respected, finish = probe_enum(cfg, model)
+        print("Enum probe public model group:", model)
         print("Synthetic nested citation enum respected:", respected,
               "finish_reason:", finish)
         if not respected:
