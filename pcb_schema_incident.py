@@ -10,7 +10,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import secrets
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -67,6 +70,50 @@ def find_calls(rows: list[dict], report, pcb_aliases: set[str]) -> list[tuple[st
     return matches
 
 
+def build_enum_probe(model: str, marker: str) -> dict:
+    """Keep the only valid citation marker in the schema, not in the prompt."""
+    cell = {"type": "string", "enum": [marker]}
+    citation = {"type": "object", "additionalProperties": False,
+                "required": ["cell"], "properties": {"cell": cell}}
+    claim = {"type": "object", "additionalProperties": False,
+             "required": ["evidence"], "properties": {
+                 "evidence": {"type": "array", "minItems": 1, "maxItems": 1,
+                              "items": citation}}}
+    schema = {"type": "object", "additionalProperties": False,
+              "required": ["claims"], "properties": {
+                  "claims": {"type": "array", "minItems": 1, "maxItems": 1,
+                             "items": claim}}}
+    return {"model": model,
+            "messages": [{"role": "user", "content":
+                          "Return one claim with one evidence cell. Set cell to NOT_ALLOWED."}],
+            "temperature": 0, "stream": False, "max_tokens": 1024,
+            "response_format": {"type": "json_schema", "json_schema": {
+                "name": "pcb_enum_canary", "strict": True, "schema": schema}}}
+
+
+def probe_enum(cfg: dict, model: str) -> tuple[bool, str | None]:
+    marker = "allowed_" + secrets.token_hex(12)
+    body = json.dumps(build_enum_probe(model, marker)).encode("utf-8")
+    url = cfg["litellm_base_url"].rstrip("/") + "/v1/chat/completions"
+    req = urllib.request.Request(url, data=body, method="POST", headers={
+        "Authorization": "Bearer " + cfg["litellm_api_key"],
+        "Content-Type": "application/json", "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=120) as response:
+            reply = json.load(response)
+    except urllib.error.HTTPError as exc:
+        raise RuntimeError(f"Enum probe failed with HTTP {exc.code}; no response body printed.") from None
+    except (urllib.error.URLError, TimeoutError, OSError) as exc:
+        raise RuntimeError("Enum probe could not reach LiteLLM; no response body printed.") from exc
+    try:
+        choice = reply["choices"][0]
+        answer = json.loads(choice["message"]["content"])
+        actual = answer["claims"][0]["evidence"][0]["cell"]
+        return actual == marker, choice.get("finish_reason")
+    except (KeyError, IndexError, TypeError, ValueError):
+        return False, None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT_DIR)
@@ -74,6 +121,10 @@ def main() -> int:
                         help="Server-local application alias JSON; needed for a fresh clone")
     parser.add_argument("--publish", action="store_true",
                         help="Publish each matched request with the existing encrypted exporter")
+    parser.add_argument("--probe-enum", action="store_true",
+                        help="Send one synthetic nested-enum request through this LiteLLM route")
+    parser.add_argument("--model", default="gemma4:31b-it-bf16",
+                        help="Public LiteLLM model name for the synthetic enum probe")
     args = parser.parse_args()
     evidence.check_operator_account()
     report_dir = args.report_dir.resolve()
@@ -106,6 +157,12 @@ def main() -> int:
         print("After analysis, delete these three encrypted files using the evidence UI.")
     else:
         print("Read-only lookup complete. Add --publish to export encrypted evidence.")
+    if args.probe_enum:
+        respected, finish = probe_enum(cfg, args.model)
+        print("Synthetic nested citation enum respected:", respected,
+              "finish_reason:", finish)
+        if not respected:
+            return 2
     return 0
 
 
