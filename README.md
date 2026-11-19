@@ -106,3 +106,19 @@ owner if history purging is required.
   The exporter does not leave a plaintext report or modify the service.
 - Already published: use the existing encrypted file. The tool does not
   silently overwrite evidence.
+
+## Locate the 19 November PCB schema incident
+
+On the Windows LiteLLM server, pull this repository and run the following
+command in its checkout. It matches PCB's three calls by the reported UTC
+window, prompt-token counts, and server-local PCB key aliases. It refuses to
+publish if any stage has zero or multiple matches.
+
+~~~powershell
+.\.venv\Scripts\python.exe .\pcb_schema_incident.py --publish
+~~~
+
+The script prints the three LiteLLM Request IDs and encrypted GitHub links.
+It does not print prompts, answers, keys, or the full request rows. After the
+links have been analyzed, delete each published request using the existing
+evidence UI. Omit `--publish` for a read-only lookup.
