@@ -121,4 +121,6 @@ publish if any stage has zero or multiple matches.
 The script prints the three LiteLLM Request IDs and encrypted GitHub links.
 It does not print prompts, answers, keys, or the full request rows. After the
 links have been analyzed, delete each published request using the existing
-evidence UI. Omit `--publish` for a read-only lookup.
+evidence UI. Omit `--publish` for a read-only lookup. For a fresh clone, pass
+`--aliases-file` pointing to the existing server-local alias JSON; do not
+copy that private file into the public repository.

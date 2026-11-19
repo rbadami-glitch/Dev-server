@@ -70,6 +70,8 @@ def find_calls(rows: list[dict], report, pcb_aliases: set[str]) -> list[tuple[st
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--report-dir", type=Path, default=DEFAULT_REPORT_DIR)
+    parser.add_argument("--aliases-file", type=Path, default=apps.ALIASES_FILE,
+                        help="Server-local application alias JSON; needed for a fresh clone")
     parser.add_argument("--publish", action="store_true",
                         help="Publish each matched request with the existing encrypted exporter")
     args = parser.parse_args()
@@ -77,9 +79,9 @@ def main() -> int:
     report_dir = args.report_dir.resolve()
     if not (report_dir / "litellm_report.py").is_file():
         parser.error("--report-dir must contain litellm_report.py")
-    if not apps.ALIASES_FILE.is_file():
+    if not args.aliases_file.is_file():
         parser.error("The server-local application_aliases.local.json is required")
-    aliases = json.loads(apps.ALIASES_FILE.read_text(encoding="utf-8-sig"))
+    aliases = json.loads(args.aliases_file.read_text(encoding="utf-8-sig"))
     pcb_aliases = {apps.normalize_alias(name) for name in aliases.get("PCB", [])}
     if not pcb_aliases:
         parser.error("No PCB aliases are configured in the server-local alias file")
