@@ -1,6 +1,5 @@
-"""CW AI CO Pilot usage from individual LiteLLM request records."""
+"""CW AI CO Pilot totals from individual LiteLLM request records."""
 
-from collections import defaultdict
 import re
 
 from application_diagnostic import normalize_alias, reasoning_tokens
@@ -65,7 +64,7 @@ def summarize_copilot(report, rows, alias_map, applications, start, end):
     application_aliases = {normalize_alias(alias)
                            for names in applications.values() for alias in names}
     total = _new_bucket()
-    by_user = defaultdict(_new_bucket)
+    active_users = set()
     excluded = {"applications": 0, "openwebui": 0, "unattributed": 0}
     for row in rows:
         started = report.parse_ts(row.get("startTime"))
@@ -88,35 +87,12 @@ def summarize_copilot(report, rows, alias_map, applications, start, end):
             excluded["unattributed"] += 1
             continue
         _add_request(report, total, row, metadata, started)
-        _add_request(report, by_user[user], row, metadata, started)
-    users = [{"user": user, **_finish(report, bucket)} for user, bucket in by_user.items()]
-    users.sort(key=lambda item: (-item["total_tokens"], item["user"]))
+        active_users.add(user)
     return {"application": TITLE, **_finish(report, total),
-            "active_users": len(users), "users": users, "excluded": excluded}
+            "active_users": len(active_users), "excluded": excluded}
 
 
-def render_copilot_users(report, summary, compact):
-    """Add the individual breakdown without altering existing report tables."""
-    rows = []
-    for user in summary["users"]:
-        reasoning = (compact(user["reasoning_tokens"])
-                     if user["reasoning_reported_requests"] else "-")
-        if 0 < user["reasoning_reported_requests"] < user["requests"]:
-            reasoning += " (partial)"
-        latency = user["p95_latency_s"]
-        rows.append([user["user"], report.num(user["requests"]),
-                     f"{report.num(user['failed'])} ({report.pct(user['failed'], user['requests'])})",
-                     report.money(user["spend_usd"]), compact(user["input_tokens"]),
-                     compact(user["output_tokens"]), compact(user["total_tokens"]),
-                     reasoning, f"{latency:.1f}s" if latency is not None else "-"])
-    heading = (f'<h2 style="{report.H2}">{TITLE} users '
-               f'({report.num(summary["active_users"])} active)</h2>')
-    table = report.table(
-        ["User", "Requests", "Failed", "Spend", "Input tokens",
-         "Output tokens", "Total tokens", "Reasoning tokens (in output)",
-         "p95 latency"], rows)
-    table = table.replace('style="border-collapse:collapse;',
-                          'style="table-layout:fixed;border-collapse:collapse;', 1)
-    table = table.replace('<td style="',
-                          '<td style="overflow-wrap:anywhere;word-break:break-word;')
-    return heading + table
+def render_copilot_active_users(report, summary):
+    """Show a bounded user count; the original Top users table remains unchanged."""
+    return (f'<p style="{report.FONT}font-size:12px;color:#111827;margin:4px 0 10px">'
+            f'<strong>{TITLE} active users: {report.num(summary["active_users"])}</strong></p>')

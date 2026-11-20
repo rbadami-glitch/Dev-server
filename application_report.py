@@ -15,7 +15,7 @@ from pathlib import Path
 
 from application_diagnostic import load_application_aliases, summarize
 from capacity_report import render_capacity, summarize_capacity
-from copilot_report import render_copilot_users, summarize_copilot
+from copilot_report import render_copilot_active_users, summarize_copilot
 
 
 HERE = Path(__file__).resolve().parent
@@ -263,7 +263,7 @@ def main():
                                   data["window_start"], data["window_end"],
                                   cfg["timezone_offset_hours"])
     extra_sections = (render_applications(report, application_rows, bool(data["logs"])) + "\n"
-                      + render_copilot_users(report, copilot, compact) + "\n"
+                      + render_copilot_active_users(report, copilot) + "\n"
                       + render_capacity(report, capacity, cfg["timezone_label"]))
     extended_html = insert_applications(report, base_html, extra_sections)
     csv_report = report.render_csv(current)
