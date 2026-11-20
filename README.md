@@ -130,3 +130,15 @@ public model group. Its only allowed citation ID is a random marker present in t
 JSON schema but absent from the prompt. The result reports whether the nested
 enum was respected and the finish reason; it never prints the marker or model
 answer. This tests the active route without PCB record contents.
+
+## Investigate the 20 November PCB Smart Chat latency
+
+On the Windows LiteLLM server, run `pcb_latency_incident.py --publish` with the
+Dev-server Python environment. When using a fresh clone, pass `--aliases-file`
+pointing to the existing server-local `application_aliases.local.json`. The
+script collects the 15:20-15:36 UTC gateway timeline for the reported PCB
+request and nearby concurrent calls. It publishes only an encrypted, sanitized
+timeline: timestamps, token counts, model group, retry counts, explicit queue
+measurements if present, and whether the PCB request ID appears in saved
+gateway fields. It never publishes raw messages, answers, keys, or full rows.
+Delete the encrypted file from the current GitHub branch after analysis.
