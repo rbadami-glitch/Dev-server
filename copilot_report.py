@@ -1,4 +1,4 @@
-"""CW AI CO Pilot totals from individual LiteLLM request records."""
+"""CW AI Copilot totals from individual LiteLLM request records."""
 
 import re
 
@@ -6,7 +6,7 @@ from application_diagnostic import normalize_alias, reasoning_tokens
 
 
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-TITLE = "CW AI CO Pilot"
+TITLE = "CW AI Copilot"
 OTHER_UNATTRIBUTED = "Unattributed / other"
 
 

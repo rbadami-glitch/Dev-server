@@ -39,7 +39,6 @@ def summarize_capacity(report, rows, aliases, selected, start, end, tz_offset_ho
     input_by_minute = Counter()
     output_by_minute = Counter()
     app_by_hour = defaultdict(Counter)
-    other_by_hour = defaultdict(Counter)
     model_requests = Counter()
     queue_samples = defaultdict(list)
     intervals = []
@@ -61,10 +60,10 @@ def summarize_capacity(report, rows, aliases, selected, start, end, tz_offset_ho
         metadata = report.row_meta(row)
         alias = (metadata.get("user_api_key_alias") or row.get("key_alias")
                  or aliases.get(row.get("api_key")) or "")
-        app = alias_to_app.get(normalize_alias(alias), "Other users / unattributed")
+        app = alias_to_app.get(normalize_alias(alias))
+        if app is None:
+            app = other_usage_group(alias, metadata, row)
         app_by_hour[hour][app] += 1
-        if app == "Other users / unattributed":
-            other_by_hour[hour][other_usage_group(alias, metadata, row)] += 1
 
         model = str(row.get("model") or "(unknown)")
         model_requests[model] += 1
@@ -104,8 +103,9 @@ def summarize_capacity(report, rows, aliases, selected, start, end, tz_offset_ho
             "peak_concurrent": peak_concurrent if intervals else None,
             "peak_concurrent_at": concurrent_at, "valid_intervals": len(intervals),
             "app_peak_hour_counts": {app: app_counts[app] for app in selected},
-            "other_peak_hour_requests": app_counts["Other users / unattributed"],
-            "other_peak_hour_groups": dict(other_by_hour[peak_hour]) if peak_hour is not None else {},
+            "copilot_peak_hour_requests": app_counts[COPILOT_TITLE],
+            "openwebui_peak_hour_requests": app_counts["OpenWebUI"],
+            "unattributed_peak_hour_requests": app_counts[OTHER_UNATTRIBUTED],
             "queue_by_model": queue_by_model}
 
 
@@ -141,19 +141,15 @@ def render_capacity(report, stats, timezone_label):
     hour_total = stats["peak_hour_requests"]
     share_rows = [[app, report.num(count), report.pct(count, hour_total)]
                   for app, count in stats["app_peak_hour_counts"].items()]
-    other = stats["other_peak_hour_requests"]
-    share_rows.append(["Other users / unattributed", report.num(other), report.pct(other, hour_total)])
+    copilot = stats["copilot_peak_hour_requests"]
+    share_rows.append([COPILOT_TITLE, report.num(copilot), report.pct(copilot, hour_total)])
+    for label, count in (("OpenWebUI", stats["openwebui_peak_hour_requests"]),
+                         (OTHER_UNATTRIBUTED, stats["unattributed_peak_hour_requests"])):
+        if count:
+            share_rows.append([label, report.num(count), report.pct(count, hour_total)])
     result += (f'<h3 style="{report.FONT}font-size:13px;color:#111827;margin:14px 0 4px">'
                f'App share of busiest hour</h3>'
-               + report.table(["Application / other", "Requests", "% of busiest hour"], share_rows))
-    if other:
-        groups = stats["other_peak_hour_groups"]
-        breakdown = [[name, report.num(groups.get(name, 0)),
-                      report.pct(groups.get(name, 0), other)]
-                     for name in (COPILOT_TITLE, "OpenWebUI", OTHER_UNATTRIBUTED)]
-        result += (f'<h3 style="{report.FONT}font-size:13px;color:#111827;margin:14px 0 4px">'
-                   f'Breakdown of Other users / unattributed</h3>'
-                   + report.table(["Group", "Requests", "% of Other"], breakdown))
+               + report.table(["Application / source", "Requests", "% of busiest hour"], share_rows))
 
     queue_rows = [[item["model"], report.num(item["requests"]),
                    report.num(item["samples"]),

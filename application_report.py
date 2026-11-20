@@ -277,7 +277,7 @@ def main():
     print(f"Preview: {html_path}")
     counts = [f"{b['application']}={b['requests']}" for b in summary["application_stats"]]
     print(f"Application requests: {', '.join(counts)}")
-    print(f"CW AI CO Pilot: {copilot['requests']} requests from {copilot['active_users']} "
+    print(f"CW AI Copilot: {copilot['requests']} requests from {copilot['active_users']} "
           f"active users; OpenWebUI excluded: {copilot['excluded']['openwebui']}; "
           f"unattributed excluded: {copilot['excluded']['unattributed']}")
     coverage = [f"{b['application']} {b['reasoning_reported_requests']}/{b['requests']}"
