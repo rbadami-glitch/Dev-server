@@ -1,0 +1,282 @@
+diff --git a/package-lock.json b/package-lock.json
+index abd77b4..bb1b69c 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -77,6 +77,7 @@
+ 				"iconoir": "^7.12.1",
+ 				"js-sha256": "^0.10.1",
+ 				"jspdf": "^4.0.0",
++				"jspdf-autotable": "^5.0.9",
+ 				"jszip": "^3.10.1",
+ 				"katex": "^0.16.22",
+ 				"kokoro-js": "^1.1.1",
+@@ -10369,6 +10370,15 @@
+ 				"html2canvas": "^1.0.0-rc.5"
+ 			}
+ 		},
++		"node_modules/jspdf-autotable": {
++			"version": "5.0.9",
++			"resolved": "https://registry.npmjs.org/jspdf-autotable/-/jspdf-autotable-5.0.9.tgz",
++			"integrity": "sha512-wIOG2ggjG6Y7qvqjgFACZZeu+oHxoxrhwCn1lTMxjPhojLVVvu2U2yS2srVCYl0CXe6pqiG/jQMIIS0CFn1ssw==",
++			"license": "MIT",
++			"peerDependencies": {
++				"jspdf": "^2 || ^3 || ^4"
++			}
++		},
+ 		"node_modules/jsprim": {
+ 			"version": "2.0.2",
+ 			"resolved": "https://registry.npmjs.org/jsprim/-/jsprim-2.0.2.tgz",
+diff --git a/package.json b/package.json
+index 359afd9..e05ce63 100644
+--- a/package.json
++++ b/package.json
+@@ -129,6 +129,7 @@
+ 		"iconoir": "^7.12.1",
+ 		"js-sha256": "^0.10.1",
+ 		"jspdf": "^4.0.0",
++		"jspdf-autotable": "^5.0.9",
+ 		"jszip": "^3.10.1",
+ 		"katex": "^0.16.22",
+ 		"kokoro-js": "^1.1.1",
+diff --git a/src/lib/components/chat/Messages/Markdown/MarkdownTokens.svelte b/src/lib/components/chat/Messages/Markdown/MarkdownTokens.svelte
+index 802472a..d67799d 100644
+--- a/src/lib/components/chat/Messages/Markdown/MarkdownTokens.svelte
++++ b/src/lib/components/chat/Messages/Markdown/MarkdownTokens.svelte
+@@ -21,9 +21,6 @@
+ 
+ 	const taskEnabled = markdown?.taskEnabled;
+ 
+-	import fileSaver from 'file-saver';
+-	const { saveAs } = fileSaver;
+-
+ 	import { type Token, type Tokens } from 'marked';
+ 	import { v4 as uuidv4 } from 'uuid';
+ 	import { copyToClipboard, unescapeHtml } from '$lib/utils';
+@@ -40,7 +37,6 @@
+ 	import Collapsible from '$lib/components/common/Collapsible.svelte';
+ 	import ToolCallDisplay from '$lib/components/common/ToolCallDisplay.svelte';
+ 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+-	import Download from '$lib/components/icons/Download.svelte';
+ 	import ConsecutiveDetailsGroup from './ConsecutiveDetailsGroup.svelte';
+ 
+ 	import HtmlToken from './HTMLToken.svelte';
+@@ -166,36 +162,36 @@
+ 		displayTokens.length === 1 &&
+ 		(displayTokens[0]?.type === 'paragraph' || displayTokens[0]?.type === 'text');
+ 
+-	const exportTableToCSVHandler = (token, tokenIdx = 0) => {
+-		// Extract header row text, decode HTML entities, and escape for CSV.
+-		const header = token.header.map(
+-			(headerCell) => `"${decode(headerCell.text).replace(/"/g, '""')}"`
+-		);
+-
+-		// Create an array for rows that will hold the mapped cell text.
+-		const rows = token.rows.map((row) =>
+-			row.map((cell) => {
+-				// Map tokens into a single text
+-				const cellContent = cell.tokens.map((token) => token.text).join('');
+-				// Decode HTML entities and escape double quotes, wrap in double quotes
+-				return `"${decode(cellContent).replace(/"/g, '""')}"`;
+-			})
+-		);
+-
+-		// Combine header and rows
+-		const csvData = [header, ...rows];
+-
+-		// Join the rows using commas (,) as the separator and rows using newline (\n).
+-		const csvContent = csvData.map((row) => row.join(',')).join('\n');
+-
+-		// To handle Unicode characters, you need to prefix the data with a BOM:
+-		const bom = '\uFEFF'; // BOM for UTF-8
+-
+-		// Create a new Blob prefixed with the BOM to ensure proper Unicode encoding.
+-		const blob = new Blob([bom + csvContent], { type: 'text/csv;charset=UTF-8' });
+-
+-		// Use FileSaver.js's saveAs function to save the generated CSV file.
+-		saveAs(blob, `table-${id}-${tokenIdx}.csv`);
++	const exportTableToExcelHandler = async (token: Tokens.Table, tokenIdx: number) => {
++		try {
++			const XLSX = await import('xlsx');
++			const rows = [
++				token.header.map((cell) => decode(cell.text)),
++				...token.rows.map((row) =>
++					row.map((cell) =>
++						decode(cell.tokens.map((part) => ('text' in part ? part.text : '')).join(''))
++					)
++				)
++			];
++			const sheet = XLSX.utils.aoa_to_sheet(rows);
++			sheet['!cols'] = rows[0].map((_, columnIndex) => ({
++				wch: Math.min(
++					48,
++					Math.max(14, ...rows.map((row) => String(row[columnIndex] ?? '').length + 2))
++				)
++			}));
++			sheet['!autofilter'] = {
++				ref: XLSX.utils.encode_range(XLSX.utils.decode_range(sheet['!ref'] ?? 'A1'))
++			};
++
++			const workbook = XLSX.utils.book_new();
++			XLSX.utils.book_append_sheet(workbook, sheet, 'Table export');
++			XLSX.writeFile(workbook, `table-${id}-${tokenIdx}.xlsx`, { compression: true });
++			toast.success($i18n.t('Download started. Check your browser downloads.'));
++		} catch (error) {
++			console.error('Table Excel export failed', error);
++			toast.error($i18n.t('Download failed'));
++		}
+ 	};
+ </script>
+ 
+@@ -317,16 +313,16 @@
+ 					</button>
+ 				</Tooltip>
+ 
+-				<Tooltip content={$i18n.t('Export to CSV')}>
++				<Tooltip content={$i18n.t('Export to Excel')}>
+ 					<button
+-						aria-label={$i18n.t('Export to CSV')}
+-						class="p-1 rounded-lg bg-transparent transition"
++						aria-label={$i18n.t('Export to Excel')}
++						class="px-2 py-1 rounded-lg bg-transparent text-xs font-medium transition hover:bg-gray-100 dark:hover:bg-gray-800"
+ 						on:click={(e) => {
+ 							e.stopPropagation();
+-							exportTableToCSVHandler(token, tokenIdx);
++							exportTableToExcelHandler(token, tokenIdx);
+ 						}}
+ 					>
+-						<Download className=" size-3.5" strokeWidth="1.5" />
++						Excel
+ 					</button>
+ 				</Tooltip>
+ 			</div>
+diff --git a/src/lib/components/chat/Messages/ResponseMessage.svelte b/src/lib/components/chat/Messages/ResponseMessage.svelte
+index 5f33b91..bc406bf 100644
+--- a/src/lib/components/chat/Messages/ResponseMessage.svelte
++++ b/src/lib/components/chat/Messages/ResponseMessage.svelte
+@@ -6,6 +6,8 @@
+ 	import { resolveLocalizedFunction } from '$lib/utils/localizedContent';
+ 	import { functions as localizedFunctions } from '$lib/stores';
+ 	import { toast } from 'svelte-sonner';
++	import fileSaver from 'file-saver';
++	const { saveAs } = fileSaver;
+ 
+ 	import { createEventDispatcher, onDestroy } from 'svelte';
+ 	import { onMount, tick, getContext } from 'svelte';
+@@ -46,6 +48,8 @@
+ 	import RateComment from './RateComment.svelte';
+ 	import WebSearchResults from './ResponseMessage/WebSearchResults.svelte';
+ 	import Sparkles from '$lib/components/layout/Sidebar/icons/Sparkles.svelte';
++	import DocumentArrowDown from '$lib/components/icons/DocumentArrowDown.svelte';
++	import { cwPayResultPdfBlob } from '$lib/utils/cwPayPdfExport';
+ 
+ 	import DeleteConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+ 
+@@ -216,6 +220,13 @@
+ 	$: visibleResponseContent =
+ 		getOutputText(message.output) || removeAllDetails(message.content ?? '');
+ 	$: hasResponseContent = Boolean((message.content ?? '').trim() || message.output?.length);
++	$: isCwPayResult =
++		Boolean(visibleResponseContent.trim()) &&
++		[message.model, model?.name, localizedModelName].some((value) =>
++			String(value ?? '')
++				.toLowerCase()
++				.includes('cw pay')
++		);
+ 
+ 	let edit = false;
+ 	let editButtonElement: HTMLButtonElement;
+@@ -230,6 +241,7 @@
+ 
+ 	let loadingSpeech = false;
+ 	let speakAbort: AbortController | null = null;
++	let exportingCwPayPdf = false;
+ 
+ 	let showRateComment = false;
+ 
+@@ -246,6 +258,24 @@
+ 		}
+ 	};
+ 
++	const exportCwPayResultToPdf = async () => {
++		if (exportingCwPayPdf || !visibleResponseContent.trim()) return;
++
++		exportingCwPayPdf = true;
++		const toastId = toast.loading($i18n.t('Preparing download...'));
++		try {
++			// Allow the spinner and toast to paint before PDF generation starts.
++			await new Promise<void>((resolve) => setTimeout(resolve, 0));
++			saveAs(await cwPayResultPdfBlob(visibleResponseContent), `cw-pay-result-${message.id}.pdf`);
++			toast.success($i18n.t('Download started. Check your browser downloads.'), { id: toastId });
++		} catch (error) {
++			console.error('CW Pay PDF export failed', error);
++			toast.error($i18n.t('Download failed'), { id: toastId });
++		} finally {
++			exportingCwPayPdf = false;
++		}
++	};
++
+ 	const stopAudio = () => {
+ 		speakAbort?.abort();
+ 		speakAbort = null;
+@@ -1149,6 +1179,39 @@
+ 									</button>
+ 								</Tooltip>
+ 
++								{#if isCwPayResult}
++									<Tooltip content={$i18n.t('Export to PDF')} placement="bottom">
++										<button
++											aria-label={$i18n.t('Export to PDF')}
++											disabled={exportingCwPayPdf}
++											class="{isLastMessage || ($settings?.highContrastMode ?? false)
++												? 'visible'
++												: 'hover-reveal'} inline-flex size-7 shrink-0 items-center justify-center p-1.5 hover:bg-black/5 dark:hover:bg-white/5 rounded-lg dark:hover:text-gray-400 hover:text-gray-600 transition disabled:opacity-50"
++											on:click={exportCwPayResultToPdf}
++										>
++											{#if exportingCwPayPdf}
++												<svg
++													class="size-4 animate-spin"
++													aria-hidden="true"
++													stroke-width="1.5"
++													viewBox="0 0 24 24"
++													fill="none"
++													xmlns="http://www.w3.org/2000/svg"
++												>
++													<path
++														d="M21.8883 13.5C21.1645 18.3113 17.013 22 12 22C6.47715 22 2 17.5228 2 12C2 6.47715 6.47715 2 12 2C16.1006 2 19.6248 4.46819 21.1679 8"
++														stroke="currentColor"
++														stroke-linecap="round"
++														stroke-linejoin="round"
++													/>
++												</svg>
++											{:else}
++												<DocumentArrowDown className="size-4" />
++											{/if}
++										</button>
++									</Tooltip>
++								{/if}
++
+ 								{#if !readOnly && ($user?.role === 'admin' || ($user?.permissions?.chat?.tts ?? true))}
+ 									<Tooltip content={$i18n.t('Read Aloud')} placement="bottom">
+ 										<button
+diff --git a/src/lib/i18n/locales/en-US/translation.json b/src/lib/i18n/locales/en-US/translation.json
+index faa9b11..c50ff97 100644
+--- a/src/lib/i18n/locales/en-US/translation.json
++++ b/src/lib/i18n/locales/en-US/translation.json
+@@ -1067,6 +1067,7 @@
+ 	"Download canceled": "",
+ 	"Download CSV Template": "",
+ 	"Download failed": "",
++	"Download started. Check your browser downloads.": "",
+ 	"Download Model": "",
+ 	"Download page": "",
+ 	"Download recovery codes": "",
+@@ -1412,6 +1413,8 @@
+ 	"Export Prompts": "",
+ 	"Export Skills": "",
+ 	"Export to CSV": "",
++	"Export to Excel": "",
++	"Export to PDF": "",
+ 	"Export Tools": "",
+ 	"Export ZIP": "",
+ 	"External": "",
+
