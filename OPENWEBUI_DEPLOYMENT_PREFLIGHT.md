@@ -3,7 +3,7 @@
 Run this on the Windows server from a clean checkout of this Dev-server repo:
 
 ```powershell
-git pull --ff-only origin main
+git -c http.sslBackend=openssl pull --ff-only origin main
 .\Collect-OpenWebUIPreflight.ps1 -Publish
 ```
 

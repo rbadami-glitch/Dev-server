@@ -58,7 +58,7 @@ if ($Publish) {
     if ($LASTEXITCODE -ne 0) { throw 'Could not stage the report.' }
     & git -C $repo commit -m "Record OpenWebUI deployment preflight $stamp"
     if ($LASTEXITCODE -ne 0) { throw 'Could not commit the report.' }
-    & git -C $repo push origin HEAD:main
+    & git -c http.sslBackend=openssl -C $repo push origin HEAD:main
     if ($LASTEXITCODE -ne 0) { throw 'Could not push the report.' }
     Write-Host 'Report published to GitHub.'
 }
