@@ -5,6 +5,7 @@ from datetime import timedelta, timezone
 import math
 
 from application_diagnostic import as_object, normalize_alias
+from copilot_report import OTHER_UNATTRIBUTED, TITLE as COPILOT_TITLE, other_usage_group
 
 
 def _peak(bucket):
@@ -38,6 +39,7 @@ def summarize_capacity(report, rows, aliases, selected, start, end, tz_offset_ho
     input_by_minute = Counter()
     output_by_minute = Counter()
     app_by_hour = defaultdict(Counter)
+    other_by_hour = defaultdict(Counter)
     model_requests = Counter()
     queue_samples = defaultdict(list)
     intervals = []
@@ -61,6 +63,8 @@ def summarize_capacity(report, rows, aliases, selected, start, end, tz_offset_ho
                  or aliases.get(row.get("api_key")) or "")
         app = alias_to_app.get(normalize_alias(alias), "Other users / unattributed")
         app_by_hour[hour][app] += 1
+        if app == "Other users / unattributed":
+            other_by_hour[hour][other_usage_group(alias, metadata, row)] += 1
 
         model = str(row.get("model") or "(unknown)")
         model_requests[model] += 1
@@ -101,6 +105,7 @@ def summarize_capacity(report, rows, aliases, selected, start, end, tz_offset_ho
             "peak_concurrent_at": concurrent_at, "valid_intervals": len(intervals),
             "app_peak_hour_counts": {app: app_counts[app] for app in selected},
             "other_peak_hour_requests": app_counts["Other users / unattributed"],
+            "other_peak_hour_groups": dict(other_by_hour[peak_hour]) if peak_hour is not None else {},
             "queue_by_model": queue_by_model}
 
 
@@ -141,6 +146,14 @@ def render_capacity(report, stats, timezone_label):
     result += (f'<h3 style="{report.FONT}font-size:13px;color:#111827;margin:14px 0 4px">'
                f'App share of busiest hour</h3>'
                + report.table(["Application / other", "Requests", "% of busiest hour"], share_rows))
+    if other:
+        groups = stats["other_peak_hour_groups"]
+        breakdown = [[name, report.num(groups.get(name, 0)),
+                      report.pct(groups.get(name, 0), other)]
+                     for name in (COPILOT_TITLE, "OpenWebUI", OTHER_UNATTRIBUTED)]
+        result += (f'<h3 style="{report.FONT}font-size:13px;color:#111827;margin:14px 0 4px">'
+                   f'Breakdown of Other users / unattributed</h3>'
+                   + report.table(["Group", "Requests", "% of Other"], breakdown))
 
     queue_rows = [[item["model"], report.num(item["requests"]),
                    report.num(item["samples"]),

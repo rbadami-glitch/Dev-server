@@ -7,6 +7,7 @@ from application_diagnostic import normalize_alias, reasoning_tokens
 
 EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 TITLE = "CW AI CO Pilot"
+OTHER_UNATTRIBUTED = "Unattributed / other"
 
 
 def _email(value):
@@ -26,6 +27,18 @@ def _is_openwebui(alias, metadata, row):
         if "openwebui" in collapsed:
             return True
     return False
+
+
+def request_email(row, metadata):
+    return (_email(row.get("end_user")) or _email(row.get("user"))
+            or _email(metadata.get("user_api_key_end_user_id")))
+
+
+def other_usage_group(alias, metadata, row):
+    """Split requests outside the three configured application aliases."""
+    if _is_openwebui(alias, metadata, row):
+        return "OpenWebUI"
+    return TITLE if request_email(row, metadata) else OTHER_UNATTRIBUTED
 
 
 def _new_bucket():
@@ -78,14 +91,14 @@ def summarize_copilot(report, rows, alias_map, applications, start, end):
         if normalize_alias(alias) in application_aliases:
             excluded["applications"] += 1
             continue
-        if _is_openwebui(alias, metadata, row):
+        group = other_usage_group(alias, metadata, row)
+        if group == "OpenWebUI":
             excluded["openwebui"] += 1
             continue
-        user = (_email(row.get("end_user")) or _email(row.get("user"))
-                or _email(metadata.get("user_api_key_end_user_id")))
-        if not user:
+        if group == OTHER_UNATTRIBUTED:
             excluded["unattributed"] += 1
             continue
+        user = request_email(row, metadata)
         _add_request(report, total, row, metadata, started)
         active_users.add(user)
     return {"application": TITLE, **_finish(report, total),

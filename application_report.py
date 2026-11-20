@@ -280,6 +280,9 @@ def main():
     print(f"CW AI CO Pilot: {copilot['requests']} requests from {copilot['active_users']} "
           f"active users; OpenWebUI excluded: {copilot['excluded']['openwebui']}; "
           f"unattributed excluded: {copilot['excluded']['unattributed']}")
+    coverage = [f"{b['application']} {b['reasoning_reported_requests']}/{b['requests']}"
+                for b in application_rows["application_stats"]]
+    print(f"Reasoning field coverage (requests with reported value): {', '.join(coverage)}")
     print(f"Device IDs replaced with request emails: {resolved_now}; "
           f"without a request email: {unresolved_now}")
     if not args.send:
