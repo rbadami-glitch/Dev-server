@@ -1,0 +1,61 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261120114414
+Username: INT\v_rbadami
+RunAs User: INT\v_rbadami
+Configuration Name: 
+Machine: ZUSEVRAI01 (Microsoft Windows NT 10.0.20348.0)
+Host Application: C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe
+Process ID: 336008
+PSVersion: 5.1.20348.2849
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.20348.2849
+BuildVersion: 10.0.20348.2849
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+Candidate: E:\apps\open-webui-custom-candidate-0.13.4
+Official base: v0.13.4
+Live service will not be stopped or changed.
+Cloning into 'E:\apps\open-webui-custom-candidate-0.13.4'...
+remote: Enumerating objects: 5609, done.
+remote: Counting objects: 100% (5609/5609), done.
+remote: Compressing objects: 100% (3944/3944), done.
+remote: Total 5609 (delta 1559), reused 4817 (delta 1505), pack-reused 0 (from 0)
+Receiving objects: 100% (5609/5609), 16.39 MiB | 14.53 MiB/s, done.
+Resolving deltas: 100% (1559/1559), done.
+Note: switching to '0666e59d26a4d056e0bacee41742486badd71cf8'.
+
+You are in 'detached HEAD' state. You can look around, make experimental
+changes and commit them, and you can discard any commits you make in this
+state without impacting any branches by switching back to a branch.
+
+If you want to create a new branch to retain commits you create, you may
+do so (now or later) by using -c with the switch command. Example:
+
+  git switch -c <new-branch-name>
+
+Or undo this operation with:
+
+  git switch -
+
+Turn off this advice by setting config variable advice.detachedHead to false
+
+Updating files: 100% (5383/5383), done.
+error: patch failed: package-lock.json:77
+error: package-lock.json: patch does not apply
+error: patch failed: package.json:129
+error: package.json: patch does not apply
+error: patch failed: src/lib/components/chat/Messages/Markdown/MarkdownTokens.svelte:21
+error: src/lib/components/chat/Messages/Markdown/MarkdownTokens.svelte: patch does not apply
+error: patch failed: src/lib/components/chat/Messages/ResponseMessage.svelte:6
+error: src/lib/components/chat/Messages/ResponseMessage.svelte: patch does not apply
+error: patch failed: src/lib/i18n/locales/en-US/translation.json:1067
+error: src/lib/i18n/locales/en-US/translation.json: patch does not apply
+RESULT: FAILED: Custom feature patch does not apply cleanly.
+**********************
+Windows PowerShell transcript end
+End time: 20261120114425
+**********************
