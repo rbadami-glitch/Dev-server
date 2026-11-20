@@ -15,6 +15,7 @@ from pathlib import Path
 
 from application_diagnostic import load_application_aliases, summarize
 from capacity_report import render_capacity, summarize_capacity
+from copilot_report import render_copilot_users, summarize_copilot
 
 
 HERE = Path(__file__).resolve().parent
@@ -254,10 +255,15 @@ def main():
         base_html = group_latest_failures(report, base_html, current["failed_rows"])
     summary = summarize(report, data["logs"], alias_map, aliases,
                         data["window_start"], data["window_end"])
+    copilot = summarize_copilot(report, current_rows, alias_map, aliases,
+                                data["window_start"], data["window_end"])
+    application_rows = {**summary, "application_stats":
+                        [*summary["application_stats"], copilot]}
     capacity = summarize_capacity(report, data["logs"], alias_map, aliases,
                                   data["window_start"], data["window_end"],
                                   cfg["timezone_offset_hours"])
-    extra_sections = (render_applications(report, summary, bool(data["logs"])) + "\n"
+    extra_sections = (render_applications(report, application_rows, bool(data["logs"])) + "\n"
+                      + render_copilot_users(report, copilot, compact) + "\n"
                       + render_capacity(report, capacity, cfg["timezone_label"]))
     extended_html = insert_applications(report, base_html, extra_sections)
     csv_report = report.render_csv(current)
@@ -271,6 +277,9 @@ def main():
     print(f"Preview: {html_path}")
     counts = [f"{b['application']}={b['requests']}" for b in summary["application_stats"]]
     print(f"Application requests: {', '.join(counts)}")
+    print(f"CW AI CO Pilot: {copilot['requests']} requests from {copilot['active_users']} "
+          f"active users; OpenWebUI excluded: {copilot['excluded']['openwebui']}; "
+          f"unattributed excluded: {copilot['excluded']['unattributed']}")
     print(f"Device IDs replaced with request emails: {resolved_now}; "
           f"without a request email: {unresolved_now}")
     if not args.send:
