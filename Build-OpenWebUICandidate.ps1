@@ -3,10 +3,10 @@ param([switch]$Publish)
 $ErrorActionPreference = 'Stop'
 $repo = $PSScriptRoot
 $version = 'v0.13.4'
-$candidate = 'E:\apps\open-webui-custom-candidate-0.13.4'
 $reportDir = Join-Path $repo 'openwebui-deployment-reports'
 New-Item -ItemType Directory -Path $reportDir -Force | Out-Null
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+$candidate = "E:\apps\open-webui-custom-candidate-0.13.4-$stamp"
 $log = Join-Path $reportDir "candidate-build-$stamp.log"
 $success = $false
 
@@ -26,12 +26,19 @@ try {
 
     & git -c http.sslBackend=openssl clone --depth 1 --branch $version https://github.com/open-webui/open-webui.git $candidate
     if ($LASTEXITCODE -ne 0) { throw 'Official source clone failed.' }
+    $baseCommit = & git -C $candidate rev-parse HEAD
+    if ($baseCommit -ne '0666e59d26a4d056e0bacee41742486badd71cf8') {
+        throw "Unexpected official source commit: $baseCommit"
+    }
 
     $bundle = Join-Path $repo 'openwebui-custom'
     $patch = Join-Path $bundle 'cw-pay-features.patch'
-    & git -C $candidate apply --check $patch
+    # Git for Windows may check the transported .patch out with CRLF. The
+    # official source is the exact pinned commit above; ignore only whitespace
+    # while matching patch context so line endings do not cause a false conflict.
+    & git -C $candidate apply --check --ignore-whitespace $patch
     if ($LASTEXITCODE -ne 0) { throw 'Custom feature patch does not apply cleanly.' }
-    & git -C $candidate apply $patch
+    & git -C $candidate apply --ignore-whitespace $patch
     if ($LASTEXITCODE -ne 0) { throw 'Custom feature patch failed.' }
 
     $utilDir = Join-Path $candidate 'src\lib\utils'

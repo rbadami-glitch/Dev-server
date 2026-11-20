@@ -24,8 +24,8 @@ git -c http.sslBackend=openssl pull --ff-only origin main
 .\Build-OpenWebUICandidate.ps1 -Publish
 ```
 
-This clones official OpenWebUI v0.13.4 into
-`E:\apps\open-webui-custom-candidate-0.13.4`, applies the custom feature bundle,
+This clones official OpenWebUI v0.13.4 into a fresh timestamped folder under
+`E:\apps\open-webui-custom-candidate-0.13.4-*`, applies the custom feature bundle,
 builds a wheel, runs the focused PDF test, and publishes the build transcript.
 The live launcher and live data are not changed. A failed build also publishes
 its transcript for diagnosis. Review this public log before sharing its link.
