@@ -16,6 +16,11 @@ $oldStopped = $false
 $launcherChanged = $false
 $savedUvOffline = $env:UV_OFFLINE
 $savedHfOffline = $env:HF_HUB_OFFLINE
+$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'Do not run the cutover elevated: that would start OpenWebUI as Administrator. Use the regular service account after a temporary launcher write grant.'
+}
 
 function Get-LiveListener {
     $listeners = @(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue)
