@@ -5,7 +5,7 @@ param(
     [string]$DbPath = 'C:\downloads\open-webui\data\webui.db',
     [string]$BaseUrl = 'http://127.0.0.1',
     [string]$StoreDir = 'E:\apps\openwebui-private-checks',
-    [string]$PythonExe = 'python'
+    [string]$PythonExe = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -13,6 +13,15 @@ Add-Type -AssemblyName System.Security
 $worker = Join-Path $PSScriptRoot 'openwebui_state_snapshot.py'
 if (-not (Test-Path -LiteralPath $worker)) { throw "Snapshot worker missing: $worker" }
 if (-not (Test-Path -LiteralPath $DbPath)) { throw "Database missing: $DbPath" }
+if (-not $PythonExe) {
+    $candidates = @('C:\Program Files\Python311\python.exe', 'C:\Python311\python.exe')
+    $PythonExe = $candidates | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+    if (-not $PythonExe) {
+        $pythonCommand = Get-Command python -ErrorAction SilentlyContinue
+        if ($pythonCommand) { $PythonExe = $pythonCommand.Source }
+    }
+    if (-not $PythonExe) { throw 'Python 3.10+ was not found. Supply -PythonExe with its full path.' }
+}
 New-Item -ItemType Directory -Path $StoreDir -Force | Out-Null
 $pointer = Join-Path $StoreDir 'current-run.txt'
 

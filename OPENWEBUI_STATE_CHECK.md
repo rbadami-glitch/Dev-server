@@ -8,7 +8,7 @@ Run on the Windows OpenWebUI server from this repository directory. Both command
 .\Run-OpenWebUIStateCheck.ps1 -Phase After
 ```
 
-The commands need no per-model or per-tool inputs. They use the production database at `C:\downloads\open-webui\data\webui.db` and the local service at `http://127.0.0.1`. Override `-DbPath`, `-BaseUrl`, `-StoreDir`, or `-PythonExe` only when those locations differ. Python 3.10+ is required.
+The commands need no per-model or per-tool inputs. They use the production database at `C:\downloads\open-webui\data\webui.db` and the local service at `http://127.0.0.1`. The script finds Python automatically. Override `-DbPath`, `-BaseUrl`, `-StoreDir`, or `-PythonExe` only when those locations differ. Python 3.10+ is required.
 
 Each Before run creates a dated folder under `E:\apps\openwebui-private-checks`. `before.dpapi`, `after.dpapi`, and `comparison.dpapi` are encrypted with Windows DPAPI for the Windows user that ran the command. Run both phases under that same Windows account. `current-run.txt` contains only the dated folder name. **Do not push this private directory to GitHub.**
 
