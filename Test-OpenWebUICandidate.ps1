@@ -13,6 +13,9 @@ $process = $null
 $passed = $false
 $previousDataDir = $env:DATA_DIR
 $previousSecret = $env:WEBUI_SECRET_KEY
+$previousOfflineMode = $env:OFFLINE_MODE
+$previousHfOffline = $env:HF_HUB_OFFLINE
+$previousUvOffline = $env:UV_OFFLINE
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $stdoutPath = Join-Path $TestDataDir "candidate-$stamp.out.log"
 $stderrPath = Join-Path $TestDataDir "candidate-$stamp.err.log"
@@ -39,16 +42,19 @@ try {
     New-Item -ItemType Directory -Path $TestDataDir -Force | Out-Null
     $env:DATA_DIR = $TestDataDir
     $env:WEBUI_SECRET_KEY = [guid]::NewGuid().ToString('N')
+    $env:OFFLINE_MODE = 'true'
+    $env:HF_HUB_OFFLINE = '1'
+    $env:UV_OFFLINE = '1'
     $arguments = @(
         '--python', '3.11', '--with', 'unstructured[doc]',
         '--from', ('"' + $WheelPath + '"'),
         'open-webui', 'serve', '--host', '127.0.0.1', '--port', [string]$Port
     )
     Write-Host "Wheel SHA256 verified: $actualHash"
-    Write-Host "Starting isolated candidate at $testUrl; live service stays on port 80."
+    Write-Host "Starting isolated candidate offline at $testUrl; live service stays on port 80."
     $process = Start-Process -FilePath $uvx.Source -ArgumentList $arguments -PassThru `
         -WindowStyle Hidden -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath
-    $deadline = (Get-Date).AddMinutes(10)
+    $deadline = (Get-Date).AddMinutes(4)
     $nextUpdate = (Get-Date).AddSeconds(30)
     $candidateVersion = $null
     while ((Get-Date) -lt $deadline) {
@@ -63,7 +69,7 @@ try {
         }
         Start-Sleep -Seconds 5
     }
-    if (-not $candidateVersion) { throw "Candidate did not become ready within 10 minutes. See $stderrPath" }
+    if (-not $candidateVersion) { throw "Candidate did not become ready within 4 minutes. See $stderrPath" }
     if ($candidateVersion -ne '0.13.4') { throw "Unexpected candidate version: $candidateVersion" }
     $config = Invoke-WebRequest -Uri "$testUrl/api/config" -UseBasicParsing -TimeoutSec 8
     $page = Invoke-WebRequest -Uri "$testUrl/" -UseBasicParsing -TimeoutSec 8
@@ -90,6 +96,9 @@ try {
     }
     $env:DATA_DIR = $previousDataDir
     $env:WEBUI_SECRET_KEY = $previousSecret
+    $env:OFFLINE_MODE = $previousOfflineMode
+    $env:HF_HUB_OFFLINE = $previousHfOffline
+    $env:UV_OFFLINE = $previousUvOffline
     Write-Host "Candidate logs: $stdoutPath and $stderrPath"
     Write-Host 'Live OpenWebUI was not installed, updated, or stopped by this script.'
 }

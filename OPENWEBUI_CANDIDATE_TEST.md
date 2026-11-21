@@ -9,7 +9,7 @@ git -c http.sslBackend=openssl pull --ff-only origin main
 .\Test-OpenWebUICandidate.ps1
 ```
 
-The script checks the wheel hash before starting it. It uses a separate `DATA_DIR` at `E:\apps\open-webui-candidate-test-data`, binds only to `127.0.0.1:8082`, waits for its version endpoint, checks its config and page endpoints, compares the live version and launcher hash before/after, and stops the candidate process tree. The test data and startup logs remain on the server. If it fails, share the `FAIL:` line and the end of the candidate error log; do not rerun blindly.
+The script checks the wheel hash before starting it. It uses a separate `DATA_DIR` at `E:\apps\open-webui-candidate-test-data`, binds only to `127.0.0.1:8082`, waits for its version endpoint, checks its config and page endpoints, compares the live version and launcher hash before/after, and stops the candidate process tree. It sets `UV_OFFLINE=1`, `OFFLINE_MODE=true`, and `HF_HUB_OFFLINE=1` for the candidate process so uv cannot fetch packages and OpenWebUI cannot fetch the default Hugging Face embedding model. If required packages are not already cached, the test fails quickly instead of downloading them. The test data and startup logs remain on the server. If it fails, share the `FAIL:` line and the end of the candidate error log; do not rerun blindly.
 
 This is a startup smoke test. It does not exercise CW Pay, live connections, existing users, tools, or production data. The focused PDF test passed locally on the exact patched source.
 
