@@ -89,28 +89,42 @@ def probe_provider(url: str, path: str, api_key: str | None = None) -> dict:
         return {"ok": False, "error_type": "UnexpectedResponse"}
     except urllib.error.HTTPError as error:
         return {"ok": False, "http_status": error.code}
+    except urllib.error.URLError as error:
+        reason = error.reason
+        return {
+            "ok": False,
+            "error_type": "URLError",
+            "reason_type": type(reason).__name__,
+            "errno": getattr(reason, "errno", None),
+        }
     except Exception as error:
         return {"ok": False, "error_type": type(error).__name__}
 
 
-def get_provider_probes(connection: sqlite3.Connection) -> dict:
+def get_provider_probes(connection: sqlite3.Connection, selected: str | None = None) -> dict:
     results = {}
     if get_config(connection, "openai.enable", False):
         urls = get_config(connection, "openai.api_base_urls", [])
         keys = get_config(connection, "openai.api_keys", [])
         configs = get_config(connection, "openai.api_configs", {})
         for index, url in enumerate(urls):
+            label = f"openai:{index}"
+            if selected is not None and selected != label:
+                continue
             if not configs.get(str(index), {}).get("enable", True):
                 continue
             api_key = keys[index] if index < len(keys) else None
-            results[f"openai:{index}"] = probe_provider(url, "/models", api_key)
+            results[label] = probe_provider(url, "/models", api_key)
     if get_config(connection, "ollama.enable", False):
         urls = get_config(connection, "ollama.base_urls", [])
         configs = get_config(connection, "ollama.api_configs", {})
         for index, url in enumerate(urls):
+            label = f"ollama:{index}"
+            if selected is not None and selected != label:
+                continue
             if not configs.get(str(index), {}).get("enable", True):
                 continue
-            results[f"ollama:{index}"] = probe_provider(url, "/api/tags")
+            results[label] = probe_provider(url, "/api/tags")
     return results
 
 
@@ -135,12 +149,17 @@ def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--base-url", default="http://127.0.0.1")
+    parser.add_argument("--probe-only", help="Return one sanitized provider probe result")
     args = parser.parse_args()
     if not args.db.is_file():
         parser.error("OpenWebUI database was not found")
     connection = sqlite3.connect(f"file:{args.db.as_posix()}?mode=ro", uri=True, timeout=10)
     connection.row_factory = sqlite3.Row
     try:
+        if args.probe_only:
+            probe = get_provider_probes(connection, args.probe_only).get(args.probe_only)
+            print(json.dumps({"provider": args.probe_only, "result": probe}, ensure_ascii=True))
+            return
         names = {
             row[0]
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
