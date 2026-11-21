@@ -12,6 +12,8 @@ The commands need no per-model or per-tool inputs. They use the production datab
 
 Each Before run creates a dated folder under `E:\apps\openwebui-private-checks`. `before.dpapi`, `after.dpapi`, and `comparison.dpapi` are encrypted with Windows DPAPI for the Windows user that ran the command. Run both phases under that same Windows account. `current-run.txt` contains only the dated folder name. **Do not push this private directory to GitHub.**
 
+If Before reports a failed provider probe, run `.\Show-OpenWebUIStateCheck.ps1` under that same Windows account. It prints only the provider index and error type or HTTP status, without displaying URLs or API keys. Resolve or classify the failure before proceeding with an update.
+
 The check compares stored OpenWebUI configuration, model/function/tool definitions, groups, prompts, knowledge, skills, users and access grants. It ignores creation/update timestamps and normalizes JSON fields. It checks the two public service endpoints, makes read-only model-list requests to enabled OpenAI-compatible and Ollama connections, and parses stored function/tool code for syntax errors without executing it. A failed endpoint, syntax error, changed model list, or changed configuration produces `REVIEW REQUIRED` and a nonzero exit code. The encrypted report has the specific differences.
 
 This does **not** establish that a chat completion works, that a pipeline runs, or that a function/tool action is safe and successful. Those actions are reported as `NOT VERIFIED`; a configuration match is not a release approval. Some providers do not support model-list probes and may require separate checks.

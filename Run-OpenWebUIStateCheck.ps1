@@ -73,8 +73,17 @@ if ($Phase -eq 'Before') {
     $failedProviders = @($current.provider_probes.PSObject.Properties | Where-Object { -not $_.Value.ok }).Count
     $invalidCode = @($current.code_validation.PSObject.Properties | Where-Object { -not $_.Value.syntax_ok }).Count
     Write-Host "Failed service endpoints: $failedServices; failed provider model-list probes: $failedProviders; syntax errors: $invalidCode"
+    foreach ($item in $current.provider_probes.PSObject.Properties) {
+        if (-not $item.Value.ok) {
+            $reason = if ($item.Value.http_status) { "HTTP $($item.Value.http_status)" } else { $item.Value.error_type }
+            Write-Host "PROVIDER MODEL-LIST FAILED: $($item.Name) $reason"
+        }
+    }
     Write-Host 'Chat completion, function, and tool actions: NOT VERIFIED'
-    if ($failedServices -gt 0 -or $failedProviders -gt 0 -or $invalidCode -gt 0) { exit 2 }
+    if ($failedServices -gt 0 -or $failedProviders -gt 0 -or $invalidCode -gt 0) {
+        Write-Host 'BASELINE NOT CLEAN: identify these failures before updating OpenWebUI.'
+        exit 2
+    }
     return
 }
 
