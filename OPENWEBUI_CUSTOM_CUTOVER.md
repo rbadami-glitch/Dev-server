@@ -4,17 +4,11 @@ The live OpenWebUI is an NSSM Windows service named `OpenWebUIService`. Its proc
 
 The first cutover attempt stopped before restart because the ordinary user could not write the Administrators-owned launcher. A proposed temporary ACL helper also stopped without changing permissions after it correctly detected that the live service runs as SYSTEM. Use neither earlier script. The service-based script below keeps the existing service account and does not grant users new access to the launcher.
 
-From an **elevated Administrator PowerShell** on the server:
-
-```powershell
-Set-Location 'C:\Users\v_rbadami\Dev-server-openwebui'
-git -c http.sslBackend=openssl pull --ff-only origin main
-.\Deploy-OpenWebUIServiceCustom.ps1
-```
+**Status: paused.** The first service cutover did not become healthy, and NSSM left an `@latest` child process owning port 80 after reporting Stopped. The original service was recovered and the original launcher restored. Do not rerun the cutover command while the candidate startup is still being diagnosed. The deployment script now requires an explicit `-ReviewedRetry` switch and checks for surviving child processes before starting a second copy.
 
 The script verifies the wheel and launcher hashes, live version, service name, SYSTEM account, and port 80 process ancestry before making changes. It stores the original launcher and an online SQLite database backup in a dated folder restricted to the current user, SYSTEM, and Administrators. It runs a fresh encrypted Before state check. It changes only the `open-webui@latest` argument in the existing launcher and adds `UV_OFFLINE=1` and `HF_HUB_OFFLINE=1`, so uv and Hugging Face cannot fetch packages or models. It then restarts `OpenWebUIService`, checks the version and page endpoints and the wheel in the new uvx process command, and runs the existing After state check. On failure it restores the original launcher and attempts to restart the original service.
 
-This changes the live service and can interrupt it for several minutes. The server-side candidate startup test has not passed; its earlier attempt timed out while fetching the default Hugging Face model. The local frontend build and focused PDF test passed. The state check does not execute actual CW Pay queries, functions, or tools. Confirm the PDF and Excel actions from a real CW Pay result in the browser after a successful cutover.
+The server-side candidate startup test has not passed; its earlier attempt timed out while fetching the default Hugging Face model. The local frontend build and focused PDF test passed. The state check does not execute actual CW Pay queries, functions, or tools. A future cutover would interrupt the live service and must first resolve the startup failure without downloading packages or models.
 
 After a successful switch, OpenWebUI is pinned to the custom 0.13.4 wheel. The old `@latest` automatic update behavior is suspended. A future upstream release needs a new custom build and reviewed cutover; the local update checker can alert to releases but cannot merge changes automatically.
 

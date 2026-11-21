@@ -1,8 +1,12 @@
 param(
-    [string]$WheelPath = 'E:\AI\ollama\OpenWebUI-Monitoring\Openwebui-candidate\open_webui-0.13.4-py3-none-any.whl'
+    [string]$WheelPath = 'E:\AI\ollama\OpenWebUI-Monitoring\Openwebui-candidate\open_webui-0.13.4-py3-none-any.whl',
+    [switch]$ReviewedRetry
 )
 
 $ErrorActionPreference = 'Stop'
+if (-not $ReviewedRetry) {
+    throw 'Cutover paused after the port 80 collision. Review the candidate startup and process cleanup before explicitly retrying.'
+}
 $serviceName = 'OpenWebUIService'
 $launcher = 'E:\apps\open-webui\start-openwebui.ps1'
 $db = 'C:\downloads\open-webui\data\webui.db'
@@ -14,6 +18,7 @@ $launcherBackup = Join-Path $backupDir 'start-openwebui.original.ps1'
 $launcherChanged = $false
 $serviceRestarted = $false
 $previousListener = 0
+$script:lastServicePid = 0
 
 function Get-PortOwner {
     $owners = @(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue |
@@ -61,22 +66,101 @@ function Wait-Healthy([int]$seconds, [string]$wheelMarker = '') {
 }
 
 function Stop-ServiceAndWait {
-    $service = Get-Service -Name $serviceName -ErrorAction Stop
-    if ($service.Status -ne 'Stopped') {
+    $serviceInfo = Get-CimInstance Win32_Service -Filter "Name = '$serviceName'" -ErrorAction Stop
+    $rootPid = if ($serviceInfo.ProcessId -gt 0) { [int]$serviceInfo.ProcessId } else { $script:lastServicePid }
+    if ($serviceInfo.State -eq 'Stopped') {
+        $portOwners = @(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue |
+            Select-Object -ExpandProperty OwningProcess -Unique)
+        if ($portOwners.Count -eq 1) {
+            $checkPid = [int]$portOwners[0]
+            $orphanRoot = 0
+            $webuiCommandFound = $false
+            for ($depth = 0; $depth -lt 12 -and $checkPid; $depth++) {
+                $checkProc = Get-CimInstance Win32_Process -Filter "ProcessId = $checkPid" -ErrorAction SilentlyContinue
+                if (-not $checkProc) { break }
+                if ($checkProc.Name -ieq 'uvx.exe' -and $checkProc.CommandLine -and
+                    ($checkProc.CommandLine.Contains('open-webui@latest') -or
+                     $checkProc.CommandLine.IndexOf($WheelPath, [StringComparison]::OrdinalIgnoreCase) -ge 0)) {
+                    $webuiCommandFound = $true
+                }
+                if ($checkProc.Name -ieq 'nssm.exe') { $orphanRoot = [int]$checkProc.ProcessId }
+                $checkPid = [int]$checkProc.ParentProcessId
+            }
+            if ($webuiCommandFound -and $orphanRoot -gt 0) { $rootPid = $orphanRoot }
+        }
+    }
+    if ($rootPid -le 0) { throw 'Service process tree could not be identified; refusing to stop it.' }
+    $script:lastServicePid = $rootPid
+    $before = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    $known = [System.Collections.Generic.List[object]]::new()
+    $knownFrontier = @($rootPid)
+    for ($depth = 0; $depth -lt 12 -and $knownFrontier.Count -gt 0; $depth++) {
+        $children = @($before | Where-Object { $knownFrontier -contains [int]$_.ParentProcessId })
+        foreach ($child in $children) { $known.Add($child) }
+        $knownFrontier = @($children | Select-Object -ExpandProperty ProcessId)
+    }
+    if ($serviceInfo.State -ne 'Stopped') {
         Stop-Service -Name $serviceName -Force -ErrorAction Stop
         (Get-Service -Name $serviceName).WaitForStatus('Stopped', [TimeSpan]::FromSeconds(45))
     }
+
+    # NSSM can report Stopped while spawned PowerShell/uvx/Python children remain.
+    # Walk the old root's parent IDs even after NSSM exits, then stop only those
+    # SYSTEM-owned application processes before another copy is allowed to start.
     $deadline = (Get-Date).AddSeconds(30)
+    $clearSince = $null
     while ((Get-Date) -lt $deadline) {
-        if (@(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue).Count -eq 0) { return }
+        $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+        $frontier = @($rootPid)
+        $descendants = [System.Collections.Generic.List[object]]::new()
+        for ($depth = 0; $depth -lt 12 -and $frontier.Count -gt 0; $depth++) {
+            $children = @($all | Where-Object { $frontier -contains [int]$_.ParentProcessId })
+            foreach ($child in $children) { $descendants.Add($child) }
+            $frontier = @($children | Select-Object -ExpandProperty ProcessId)
+        }
+        $ordered = @($known.ToArray()) + @($descendants.ToArray())
+        [array]::Reverse($ordered)
+        foreach ($proc in $ordered) {
+            if ($proc.Name -notin @('powershell.exe', 'uvx.exe', 'uv.exe', 'open-webui.exe', 'python.exe')) {
+                continue
+            }
+            $owner = Invoke-CimMethod -InputObject $proc -MethodName GetOwner -ErrorAction SilentlyContinue
+            if (($owner.Domain + '\' + $owner.User) -ine 'NT AUTHORITY\SYSTEM') { continue }
+            $stillThere = Get-CimInstance Win32_Process -Filter "ProcessId = $($proc.ProcessId)" -ErrorAction SilentlyContinue
+            if ($stillThere -and $stillThere.CreationDate -eq $proc.CreationDate) {
+                Stop-Process -Id $proc.ProcessId -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $rootProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $rootPid" -ErrorAction SilentlyContinue
+        if ($rootProcess -and $rootProcess.Name -ieq 'nssm.exe' -and
+            (Get-Service -Name $serviceName).Status -eq 'Stopped') {
+            $rootOwner = Invoke-CimMethod -InputObject $rootProcess -MethodName GetOwner -ErrorAction SilentlyContinue
+            if (($rootOwner.Domain + '\' + $rootOwner.User) -ieq 'NT AUTHORITY\SYSTEM') {
+                Stop-Process -Id $rootPid -Force -ErrorAction SilentlyContinue
+            }
+        }
+        $listeners = @(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue)
+        $remaining = @($ordered | Where-Object {
+            $active = Get-CimInstance Win32_Process -Filter "ProcessId = $($_.ProcessId)" -ErrorAction SilentlyContinue
+            $active -and $active.CreationDate -eq $_.CreationDate -and
+                $active.Name -in @('powershell.exe', 'uvx.exe', 'uv.exe', 'open-webui.exe', 'python.exe')
+        })
+        if ($listeners.Count -eq 0 -and $remaining.Count -eq 0 -and -not
+            (Get-CimInstance Win32_Process -Filter "ProcessId = $rootPid" -ErrorAction SilentlyContinue)) {
+            if (-not $clearSince) { $clearSince = Get-Date }
+            if (((Get-Date) - $clearSince).TotalSeconds -ge 6) { return }
+        } else {
+            $clearSince = $null
+        }
         Start-Sleep -Seconds 2
     }
-    throw 'Port 80 remained occupied after the service stopped. No second service instance was started.'
+    throw 'Old OpenWebUI child processes or port 80 remained active after NSSM stopped. No second instance was started.'
 }
 
 function Start-ServiceAndWait([string]$wheelMarker = '') {
     Start-Service -Name $serviceName -ErrorAction Stop
     (Get-Service -Name $serviceName).WaitForStatus('Running', [TimeSpan]::FromSeconds(45))
+    $script:lastServicePid = [int](Get-CimInstance Win32_Service -Filter "Name = '$serviceName'" -ErrorAction Stop).ProcessId
     return Wait-Healthy 180 $wheelMarker
 }
 
