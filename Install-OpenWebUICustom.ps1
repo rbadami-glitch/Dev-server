@@ -96,9 +96,21 @@ try {
     if ((Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash -ne $expectedLauncherHash) {
         throw 'Live launcher changed since preflight. Review it before deploying.'
     }
+    try {
+        $writeProbe = [IO.File]::Open($launcher, [IO.FileMode]::Open, [IO.FileAccess]::Write, [IO.FileShare]::ReadWrite)
+        $writeProbe.Dispose()
+    } catch {
+        throw 'Current Windows account cannot write the live launcher. Run only under the same service account with an elevated token; no live change was made.'
+    }
     $oldPid = Get-LiveListener
     $oldVersion = (Invoke-RestMethod -Uri "$url/api/version" -TimeoutSec 8).version
     if ($oldVersion -ne '0.13.4') { throw "Live version changed: $oldVersion" }
+    $liveProcess = Get-CimInstance Win32_Process -Filter "ProcessId = $oldPid" -ErrorAction Stop
+    $liveOwner = Invoke-CimMethod -InputObject $liveProcess -MethodName GetOwner -ErrorAction Stop
+    $currentOwner = [Security.Principal.WindowsIdentity]::GetCurrent().Name
+    if (($liveOwner.Domain + '\' + $liveOwner.User) -ine $currentOwner) {
+        throw "Deployment account $currentOwner differs from the account running OpenWebUI. No live change was made."
+    }
 
     $ancestorPid = $oldPid
     $uvxPid = $null
@@ -178,13 +190,19 @@ finally:
     Write-Host "DEPLOYMENT FAILED: $($_.Exception.Message)" -ForegroundColor Red
     $launcherRestored = -not $launcherChanged
     if ($launcherChanged) {
-        try {
-            Copy-Item -LiteralPath $originalLauncher -Destination $launcher -Force
+        $currentHash = try { (Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash } catch { '' }
+        if ($currentHash -eq $expectedLauncherHash) {
             $launcherRestored = $true
-            Write-Host 'Original launcher restored.'
-        } catch {
-            Write-Host "ROLLBACK NEEDS ATTENTION: Could not restore original launcher: $($_.Exception.Message)" -ForegroundColor Red
-            Write-Host "Original launcher backup: $originalLauncher"
+            Write-Host 'Original launcher is unchanged; no restore was needed.'
+        } else {
+            try {
+                Copy-Item -LiteralPath $originalLauncher -Destination $launcher -Force
+                $launcherRestored = $true
+                Write-Host 'Original launcher restored.'
+            } catch {
+                Write-Host "ROLLBACK NEEDS ATTENTION: Could not restore original launcher: $($_.Exception.Message)" -ForegroundColor Red
+                Write-Host "Original launcher backup: $originalLauncher"
+            }
         }
     }
     if ($oldStopped) {

@@ -2,7 +2,9 @@
 
 The reviewed candidate is OpenWebUI 0.13.4 with the CW Pay PDF export and table Excel export. Its wheel is already on the Windows server at `E:\AI\ollama\OpenWebUI-Monitoring\Openwebui-candidate\open_webui-0.13.4-py3-none-any.whl`. Expected SHA-256: `B4774D87E682A34274A9BCF4C4293F0C4581C11CEA0F7D7F667727CAADFC9818`.
 
-Run from a **different** PowerShell window than the one running live OpenWebUI:
+The live launcher is owned by Administrators and gives ordinary Users read/execute access only. The first cutover attempt stopped before restart because the ordinary user could not write it; the original launcher hash and live version remained unchanged. The script now checks write access before backup or restart. Run it only from an **elevated PowerShell under the same Windows account that currently runs OpenWebUI**, and from a different window than its live launcher. Do not run it as a different administrator account.
+
+From that elevated window:
 
 ```powershell
 Set-Location 'C:\Users\v_rbadami\Dev-server-openwebui'
