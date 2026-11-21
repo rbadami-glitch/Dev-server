@@ -67,6 +67,25 @@ function Start-Launcher {
     ) -WorkingDirectory (Split-Path $launcher) -WindowStyle Hidden -PassThru
 }
 
+function Stop-CandidateIfPresent {
+    $owners = @(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue |
+        Select-Object -ExpandProperty OwningProcess -Unique)
+    foreach ($ownerPid in $owners) {
+        $checkPid = [int]$ownerPid
+        for ($depth = 0; $depth -lt 12 -and $checkPid; $depth++) {
+            $checkProc = Get-CimInstance Win32_Process -Filter "ProcessId = $checkPid" -ErrorAction SilentlyContinue
+            if (-not $checkProc) { break }
+            if ($checkProc.Name -ieq 'uvx.exe' -and $checkProc.CommandLine -and
+                $checkProc.CommandLine.IndexOf($WheelPath, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
+                & taskkill.exe /PID $checkProc.ProcessId /T /F | Out-Null
+                Start-Sleep -Seconds 2
+                return
+            }
+            $checkPid = [int]$checkProc.ParentProcessId
+        }
+    }
+}
+
 try {
     if (-not (Test-Path -LiteralPath $WheelPath -PathType Leaf)) { throw "Wheel missing: $WheelPath" }
     if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) { throw "Launcher missing: $launcher" }
@@ -157,21 +176,26 @@ finally:
     Write-Host "Rollback files: $backupDir"
 } catch {
     Write-Host "DEPLOYMENT FAILED: $($_.Exception.Message)" -ForegroundColor Red
+    $launcherRestored = -not $launcherChanged
     if ($launcherChanged) {
         try {
             Copy-Item -LiteralPath $originalLauncher -Destination $launcher -Force
+            $launcherRestored = $true
             Write-Host 'Original launcher restored.'
         } catch {
             Write-Host "ROLLBACK NEEDS ATTENTION: Could not restore original launcher: $($_.Exception.Message)" -ForegroundColor Red
             Write-Host "Original launcher backup: $originalLauncher"
         }
     }
-    if ($candidateShell -and -not $candidateShell.HasExited) {
-        & taskkill.exe /PID $candidateShell.Id /T /F | Out-Null
-    }
     if ($oldStopped) {
+        Stop-CandidateIfPresent
+        if ($candidateShell -and -not $candidateShell.HasExited) {
+            & taskkill.exe /PID $candidateShell.Id /T /F | Out-Null
+        }
         $occupied = @(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction SilentlyContinue)
-        if ($occupied.Count -eq 0) {
+        if (-not $launcherRestored) {
+            Write-Host 'Original launcher could not be restored; automatic restart was skipped.' -ForegroundColor Red
+        } elseif ($occupied.Count -eq 0) {
             Write-Host 'Restarting the original OpenWebUI launcher offline...'
             $rollbackShell = Start-Launcher
             try {
