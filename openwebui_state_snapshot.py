@@ -156,7 +156,9 @@ def main() -> None:
             "code_validation": validate_stored_code(connection, names),
             "functional_coverage": "service and provider model-list endpoints; stored function/tool syntax; chat completion and function/tool actions not exercised",
         }
-        print(json.dumps(result, sort_keys=True, default=str, ensure_ascii=False))
+        # PowerShell on Windows may capture stdout using a legacy code page.
+        # ASCII JSON escapes preserve Unicode without depending on that code page.
+        print(json.dumps(result, sort_keys=True, default=str, ensure_ascii=True))
     finally:
         connection.close()
 
