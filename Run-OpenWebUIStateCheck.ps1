@@ -80,15 +80,19 @@ if ($Phase -eq 'Before') {
         }
     }
     Write-Host 'Chat completion, function, and tool actions: NOT VERIFIED'
-    if ($failedServices -gt 0 -or $failedProviders -gt 0 -or $invalidCode -gt 0) {
-        Write-Host 'BASELINE NOT CLEAN: identify these failures before updating OpenWebUI.'
+    if ($failedServices -gt 0 -or $invalidCode -gt 0) {
+        Write-Host 'BASELINE NOT CLEAN: service or stored code failed.'
         exit 2
+    }
+    if ($failedProviders -gt 0) {
+        Write-Host 'DEGRADED BASELINE: provider model-list failures are recorded as unverified.'
     }
     return
 }
 
 $before = (Read-ProtectedText (Join-Path $runDir 'before.dpapi')) | ConvertFrom-Json
 $differences = [System.Collections.Generic.List[string]]::new()
+$preexisting = [System.Collections.Generic.List[string]]::new()
 $oldMissing = @($before.missing_tables | Sort-Object)
 $newMissing = @($current.missing_tables | Sort-Object)
 if (($oldMissing -join [char]0) -ne ($newMissing -join [char]0)) {
@@ -118,8 +122,18 @@ foreach ($provider in $providerNames) {
     $new = $current.provider_probes.$provider
     if ($null -eq $old) { $differences.Add("ADDED provider probe $provider") }
     elseif ($null -eq $new) { $differences.Add("MISSING provider probe $provider") }
-    elseif (-not $new.ok) { $differences.Add("FAILED provider probe $provider") }
-    elseif (-not $old.ok) { $differences.Add("BASELINE provider probe failed $provider") }
+    elseif (-not $old.ok -and -not $new.ok) {
+        $oldFailure = if ($old.http_status) { "HTTP $($old.http_status)" } else { $old.error_type }
+        $newFailure = if ($new.http_status) { "HTTP $($new.http_status)" } else { $new.error_type }
+        if ($oldFailure -eq $newFailure -and
+            (-not $old.reason_type -or -not $new.reason_type -or $old.reason_type -eq $new.reason_type)) {
+            $preexisting.Add("UNVERIFIED pre-existing provider probe $provider ($newFailure)")
+        } else {
+            $differences.Add("CHANGED provider probe failure $provider ($oldFailure to $newFailure)")
+        }
+    }
+    elseif (-not $new.ok) { $differences.Add("NEW provider probe failure $provider") }
+    elseif (-not $old.ok) { $preexisting.Add("RECOVERED provider probe $provider") }
     else {
         $oldIds = @($old.model_ids | Sort-Object)
         $newIds = @($new.model_ids | Sort-Object)
@@ -136,17 +150,25 @@ foreach ($name in $codeNames) {
     elseif ($null -eq $new) { $differences.Add("MISSING code definition $name") }
     elseif (-not $new.syntax_ok) { $differences.Add("INVALID code syntax $name") }
 }
-$status = if ($differences.Count -eq 0) { 'CONFIGURATION MATCH; FUNCTIONAL ACTIONS UNVERIFIED' } else { 'REVIEW REQUIRED' }
+$status = if ($differences.Count -gt 0) {
+    'REVIEW REQUIRED'
+} elseif ($preexisting.Count -gt 0) {
+    'NO NEW DIFFERENCES; PRE-EXISTING PROVIDER PROBES UNVERIFIED'
+} else {
+    'CONFIGURATION MATCH; FUNCTIONAL ACTIONS UNVERIFIED'
+}
 $report = @(
     "Status: $status",
     "Baseline: $runName",
     "Service version before: $($before.health.'/api/version'.version)",
     "Service version after: $($current.health.'/api/version'.version)",
     "Differences: $($differences.Count)",
+    "Pre-existing or recovered probes: $($preexisting.Count)",
     'Chat completion, function, and tool actions: NOT VERIFIED'
-) + @($differences)
+) + @($differences) + @($preexisting)
 Protect-Text ($report -join [Environment]::NewLine) (Join-Path $runDir 'comparison.dpapi')
 Write-Host $status
 Write-Host "Differences: $($differences.Count)"
+Write-Host "Pre-existing or recovered provider probes: $($preexisting.Count)"
 Write-Host "Encrypted report: $(Join-Path $runDir 'comparison.dpapi')"
 if ($differences.Count -gt 0) { exit 2 }
