@@ -1,6 +1,7 @@
 """Read-only OpenWebUI configuration snapshot for the server-only check kit."""
 
 import argparse
+import ast
 import hashlib
 import json
 import sqlite3
@@ -113,6 +114,23 @@ def get_provider_probes(connection: sqlite3.Connection) -> dict:
     return results
 
 
+def validate_stored_code(connection: sqlite3.Connection, names: set[str]) -> dict:
+    results = {}
+    for table in ("function", "tool"):
+        if table not in names:
+            continue
+        for identifier, content in connection.execute(f'SELECT id, content FROM "{table}"'):
+            try:
+                ast.parse(content or "")
+                results[f"{table}:{identifier}"] = {"syntax_ok": True}
+            except SyntaxError as error:
+                results[f"{table}:{identifier}"] = {
+                    "syntax_ok": False,
+                    "line": error.lineno,
+                }
+    return results
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", type=Path, required=True)
@@ -135,7 +153,8 @@ def main() -> None:
             "missing_tables": sorted(set(CONFIG_TABLES) - names),
             "health": get_health(args.base_url),
             "provider_probes": get_provider_probes(connection),
-            "functional_coverage": "service and provider model-list endpoints; chat completion, function and tool actions not exercised",
+            "code_validation": validate_stored_code(connection, names),
+            "functional_coverage": "service and provider model-list endpoints; stored function/tool syntax; chat completion and function/tool actions not exercised",
         }
         print(json.dumps(result, sort_keys=True, default=str, ensure_ascii=False))
     finally:

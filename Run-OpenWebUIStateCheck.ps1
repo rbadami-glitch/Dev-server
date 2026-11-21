@@ -62,9 +62,10 @@ if ($Phase -eq 'Before') {
     Write-Host "Configuration tables captured: $(@($current.tables.PSObject.Properties.Name).Count)"
     $failedServices = @($current.health.PSObject.Properties | Where-Object { -not $_.Value.ok }).Count
     $failedProviders = @($current.provider_probes.PSObject.Properties | Where-Object { -not $_.Value.ok }).Count
-    Write-Host "Failed service endpoints: $failedServices; failed provider model-list probes: $failedProviders"
+    $invalidCode = @($current.code_validation.PSObject.Properties | Where-Object { -not $_.Value.syntax_ok }).Count
+    Write-Host "Failed service endpoints: $failedServices; failed provider model-list probes: $failedProviders; syntax errors: $invalidCode"
     Write-Host 'Chat completion, function, and tool actions: NOT VERIFIED'
-    if ($failedServices -gt 0 -or $failedProviders -gt 0) { exit 2 }
+    if ($failedServices -gt 0 -or $failedProviders -gt 0 -or $invalidCode -gt 0) { exit 2 }
     return
 }
 
@@ -108,6 +109,14 @@ foreach ($provider in $providerNames) {
             $differences.Add("CHANGED provider model list $provider")
         }
     }
+}
+$codeNames = @($before.code_validation.PSObject.Properties.Name) + @($current.code_validation.PSObject.Properties.Name) | Sort-Object -Unique
+foreach ($name in $codeNames) {
+    $old = $before.code_validation.$name
+    $new = $current.code_validation.$name
+    if ($null -eq $old) { $differences.Add("ADDED code definition $name") }
+    elseif ($null -eq $new) { $differences.Add("MISSING code definition $name") }
+    elseif (-not $new.syntax_ok) { $differences.Add("INVALID code syntax $name") }
 }
 $status = if ($differences.Count -eq 0) { 'CONFIGURATION MATCH; FUNCTIONAL ACTIONS UNVERIFIED' } else { 'REVIEW REQUIRED' }
 $report = @(
