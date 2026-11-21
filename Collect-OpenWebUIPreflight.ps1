@@ -44,6 +44,24 @@ try {
     Add-Result 'Live OpenWebUI version' 'Endpoint unavailable'
 }
 
+# Identify the process that actually owns the live listener without publishing
+# command lines, environment values, credentials, or application data.
+try {
+    $listeners = @(Get-NetTCPConnection -LocalPort 80 -State Listen -ErrorAction Stop)
+    $owners = @($listeners | Select-Object -ExpandProperty OwningProcess -Unique)
+    Add-Result 'Port 80 listener count' $listeners.Count
+    foreach ($ownerPid in $owners) {
+        $owner = Get-CimInstance Win32_Process -Filter "ProcessId = $ownerPid" -ErrorAction Stop
+        $parent = Get-CimInstance Win32_Process -Filter "ProcessId = $($owner.ParentProcessId)" -ErrorAction SilentlyContinue
+        $service = @(Get-CimInstance Win32_Service -Filter "ProcessId = $ownerPid" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name)
+        Add-Result "Port 80 owner $ownerPid" $owner.Name
+        Add-Result "Port 80 parent $ownerPid" $(if ($parent) { $parent.Name } else { 'Unavailable' })
+        Add-Result "Port 80 service $ownerPid" $(if ($service.Count) { $service -join ',' } else { 'None found' })
+    }
+} catch {
+    Add-Result 'Port 80 process inspection' "Unavailable: $($_.Exception.GetType().Name)"
+}
+
 Add-Result 'Live service changed' 'No'
 $lines | Set-Content -LiteralPath $report -Encoding UTF8
 Write-Host "Preflight report: $report"
